@@ -171,7 +171,7 @@ class tracer(BaseTracer):
         # By default, PackedRFTracer will attempt to use the highest level of detail for the ray sampling.
         # This however may not actually do anything; the ray sampling behaviours are often single-LOD
         # and is governed by however the underlying feature grid class uses the BLAS to implement the sampling.
-        raymarch_results = nef.grid.raymarch(rays,
+        raymarch_results = nef.grid_t[idx].raymarch(rays,
                                              level=nef.grid.active_lods[lod_idx],
                                              num_samples=num_steps,
                                              raymarch_type=self.raymarch_type)
@@ -189,16 +189,24 @@ class tracer(BaseTracer):
         # Compute the color and density for each ray and their samples
         num_samples = samples.shape[0]
         
-        max_samples=1000000
+        max_samples=2**17
         if len(samples)>max_samples:
+
             color=[]
             density=[]
             for i in range((len(samples)+max_samples-1)//max_samples):
-                c, d = nef(coords=samples[i*max_samples:(i+1)*max_samples], ray_d=hit_ray_d[i*max_samples:(i+1)*max_samples], lod_idx=lod_idx, channels=["rgb", "density"])
+
+                c, d = nef( coords = samples[i*max_samples:(i+1)*max_samples], 
+                            ray_d = hit_ray_d[i*max_samples:(i+1)*max_samples], 
+                            idx = idx,
+                            lod_idx = lod_idx, 
+                            channels = ["rgb", "density"])
+
                 color.append(c)
                 density.append(d)
             color=torch.concat(color)
             density=torch.concat(density)
+
         else:
             color, density = nef(coords=samples, ray_d=hit_ray_d, lod_idx=lod_idx, channels=["rgb", "density"])
 

@@ -18,7 +18,7 @@ import wandb
 import numpy as np
 from PIL import Image
 
-class trainer(BaseTrainer):
+class Trainer(BaseTrainer):
 
     def pre_step(self):
         """Override pre_step to support pruning.

@@ -11,7 +11,7 @@ from wisp.tracers import BaseTracer
 from wisp.core import Rays
 import inspect
 
-class tracer(BaseTracer):
+class Tracer(BaseTracer):
     """Tracer class for sparse (packed) radiance fields.
     - Packed: each ray yields a custom number of samples, which are therefore packed in a flat form within a tensor,
      see: https://kaolin.readthedocs.io/en/latest/modules/kaolin.ops.batch.html#packed
@@ -196,11 +196,11 @@ class tracer(BaseTracer):
             density=[]
             for i in range((len(samples)+max_samples-1)//max_samples):
 
-                c, d = nef( coords = samples[i*max_samples:(i+1)*max_samples], 
+                d, c, _, _, _ = nef( coords = samples[i*max_samples:(i+1)*max_samples], 
                             ray_d = hit_ray_d[i*max_samples:(i+1)*max_samples], 
                             idx = idx,
                             lod_idx = lod_idx, 
-                            channels = ["rgb", "density"])
+                            channels = ["density", "rgb", "rgb_t", "density_t", "beta_t"])
 
                 color.append(c)
                 density.append(d)
@@ -208,7 +208,7 @@ class tracer(BaseTracer):
             density=torch.concat(density)
 
         else:
-            color, density = nef(coords=samples, ray_d=hit_ray_d, lod_idx=lod_idx, channels=["rgb", "density"])
+            density, color, _, _, _ = nef(coords=samples, ray_d=hit_ray_d, lod_idx=lod_idx, channels=["density", "rgb", "rgb_t", "density_t", "beta_t"])
 
         density = density.reshape(num_samples, 1)    # Protect against squeezed return shape
         del ridx

@@ -24,9 +24,9 @@ from gui import DemoApp
 
 
 from dataset import dataset
-from trainer import trainer
-from tracer import tracer
-from nef import nef
+from trainer import Trainer
+from tracer import Tracer
+from nef import Nef
 
 
 import numpy as np
@@ -90,7 +90,7 @@ for i in range(len(train_dataset)):
 appearence_emb=torch.randn(len(train_dataset), 48, device='cuda')*0.01
 
 from wisp.models.nefs import NeuralRadianceField
-nerf =  nef(grid=grid, 
+nerf =  Nef(grid=grid, 
             grid_t=grid_t,
             appearence_embedding=appearence_emb,
             view_embedder='positional',
@@ -99,7 +99,11 @@ nerf =  nef(grid=grid,
             prune_min_density=0.01*1024/np.sqrt(3)
             )
 
-tracer = tracer(raymarch_type='ray', num_steps=1024)
+tracer = Tracer(raymarch_type='ray', num_steps=1024)
+
+from wisp.renderer.core.api.renderers_factory import register_neural_field_type
+from wisp.renderer.core.api.raytraced_renderer import RayTracedRenderer
+register_neural_field_type(Nef, Tracer, RayTracedRenderer)
 
 if model_path is not None:
     pipeline = torch.load(model_path)
@@ -113,7 +117,7 @@ scene_state = WispState()
 lr = 0.001
 weight_decay = 0
 exp_name = 'siggraph_2022_demo'
-trainer = trainer(pipeline=pipeline,
+trainer = Trainer(pipeline=pipeline,
                            dataset=train_dataset, #train_dataset
                            num_epochs=epochs,
                            batch_size=1,    # 1 image per batch

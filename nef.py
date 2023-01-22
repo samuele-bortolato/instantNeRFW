@@ -6,6 +6,7 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION & AFFILIATES is strictly prohibited.
 
+import inspect
 import torch
 from typing import Dict, Any, List
 from wisp.ops.geometric import sample_unif_sphere
@@ -16,7 +17,7 @@ from wisp.models.activations import get_activation_class
 from wisp.models.decoders import BasicDecoder
 from wisp.models.grids import BLASGrid, HashGrid
 
-class nef(BaseNeuralField):
+class Nef(BaseNeuralField):
     """Model for encoding Neural Radiance Fields (Mildenhall et al. 2020), e.g., density and view dependent color.
     Different to the original NeRF paper, this implementation uses feature grids for a
     higher quality and more efficient implementation, following later trends in the literature,
@@ -236,14 +237,81 @@ class nef(BaseNeuralField):
                 else:
                     raise NotImplementedError(f'Pruning not implemented for grid type {grid}')
 
+    def forward(self, channels=None, **kwargs):
+        """Queries the neural field with channels.
+
+        Args:
+            channels (str or list of str or set of str): Requested channels. See return value for details.
+            kwargs: Any keyword argument passed in will be passed into the respective forward functions.
+
+        Returns:
+            (list or dict or torch.Tensor): 
+                If channels is a string, will return a tensor of the request channel. 
+                If channels is a list, will return a list of channels.
+                If channels is a set, will return a dictionary of channels.
+                If channels is None, will return a dictionary of all channels.
+        """
+        kwargs['channels'] = channels
+        if not (isinstance(channels, str) or isinstance(channels, list) or isinstance(channels, set) or channels is None):
+            raise Exception(f"Channels type invalid, got {type(channels)}." \
+                            "Make sure your arguments for the nef are provided as keyword arguments.")
+        if channels is None:
+            requested_channels = self.get_supported_channels()
+        elif isinstance(channels, str):
+            requested_channels = set([channels])
+        else:
+            requested_channels = set(channels)
+
+        unsupported_channels = requested_channels - self.get_supported_channels()
+        if unsupported_channels:
+            raise Exception(f"Channels {unsupported_channels} are not supported in {self.__class__.__name__}")
+        
+        return_dict = {}
+        for fn in self._forward_functions:
+
+            output_channels = self._forward_functions[fn]
+            # Filter the set of channels supported by the current forward function
+            supported_channels = output_channels & requested_channels
+
+            # Check that the function needs to be executed
+            if len(supported_channels) != 0:
+
+                # Filter args to the forward function and execute
+                argspec = inspect.getfullargspec(fn)
+                required_args = argspec.args[:-len(argspec.defaults)][1:] # Skip first element, self
+                optional_args = argspec.args[-len(argspec.defaults):]
+                
+                input_args = {}
+                for _arg in required_args:
+                    # TODO(ttakiakwa): This doesn't actually format the string, fix :) 
+                    if _arg not in kwargs:
+                        raise Exception(f"Argument {_arg} not found as input to in {self.__class__.__name__}.{fn.__name__}()")
+                    input_args[_arg] = kwargs[_arg]
+                for _arg in optional_args:
+                    if _arg in kwargs:
+                        input_args[_arg] = kwargs[_arg]
+                output = fn(**input_args)
+
+                for channel in supported_channels:
+                    return_dict[channel] = output[channel]
+        
+        if isinstance(channels, str):
+            if channels in return_dict:
+                return return_dict[channels]
+            else:
+                return None
+        elif isinstance(channels, list):
+            return [return_dict[channel] for channel in channels]
+        else:
+            return return_dict
+
     def register_forward_functions(self):
         """Register the forward functions.
         """
-        self._register_forward_function(self.sample, ["density", "rgb"])
-        self._register_forward_function(self.sample_t, ["rgb_t", "density_t", "beta_t"])
+        self._register_forward_function(self.sample, ["density", "rgb", "rgb_t", "density_t", "beta_t"])
 
-    
-    def sample(self, coords, ray_d, idx=None, lod_idx=None):
+
+    def sample(self, coords, ray_d, idx=None, lod_idx=None, channels=None):
         """Compute color and density [particles / vol] for the provided coordinates.
 
         Args:
@@ -256,6 +324,9 @@ class nef(BaseNeuralField):
                 - RGB tensor of shape [batch, 3]
                 - Density tensor of shape [batch, 1]
         """
+        
+        require_color = "rgb" in channels
+        require_transient =  ("rgb_t" in channels )or( "density_t" in channels) or ("beta_t" in channels)
 
         if lod_idx is None:
             lod_idx = len(self.grid.active_lods) - 1
@@ -263,69 +334,54 @@ class nef(BaseNeuralField):
 
         # Embed coordinates into high-dimensional vectors with the grid.
         feats = self.grid.interpolate(coords, lod_idx).reshape(batch, self.effective_feature_dim())
-        
+        if require_transient:
+            feats_t = self.grid_t[idx].interpolate(coords, lod_idx).reshape(batch, self.effective_feature_dim())
+
         # Optionally concat the positions to the embedding
         if self.pos_embedder is not None:
             embedded_pos = self.pos_embedder(coords).view(batch, self.pos_embed_dim)
             feats = torch.cat([feats, embedded_pos], dim=-1)
+            if require_transient:
+                feats_t = torch.cat([feats_t, embedded_pos], dim=-1)
 
         # Decode high-dimensional vectors to density features.
         density_feats = self.decoder_density(feats)
-
-        appearence = torch.broadcast_to(self.appearence_embedding[idx:idx+1], (batch, self.appearence_feat))
-
-        # Concatenate embedded view directions.
-        if self.view_embedder is not None:
-            embedded_dir = self.view_embedder(-ray_d).view(batch, self.view_embed_dim)
-            fdir = torch.cat([density_feats, appearence, embedded_dir], dim=-1)
-        else:
-            fdir = torch.cat([density_feats, appearence], dim=-1)
-
-        # Colors are values [0, 1] floats
-        # colors ~ (batch, 3)
-        colors = torch.sigmoid(self.decoder_color(fdir))
 
         # Density is [particles / meter], so need to be multiplied by distance
         # density ~ (batch, 1)
         density = torch.relu(density_feats[...,0:1])
 
-        return dict(rgb=colors, density=density)
+        if require_color:
 
+            appearence = torch.broadcast_to(self.appearence_embedding[idx:idx+1], (batch, self.appearence_feat))
 
-    def sample_t(self, coords, ray_d, idx=None, lod_idx=None):
-        """Compute color and density [particles / vol] for the provided coordinates.
+            # Concatenate embedded view directions.
+            if self.view_embedder is not None:
+                embedded_dir = self.view_embedder(-ray_d).view(batch, self.view_embed_dim)
+                fdir = torch.cat([density_feats, appearence, embedded_dir], dim=-1)
+            else:
+                fdir = torch.cat([density_feats, appearence], dim=-1)
 
-        Args:
-            coords (torch.FloatTensor): tensor of shape [batch, 3]
-            ray_d (torch.FloatTensor): tensor of shape [batch, 3]
-            lod_idx (int): index into active_lods. If None, will use the maximum LOD.
-        
-        Returns:
-            {"rgb": torch.FloatTensor, "density": torch.FloatTensor}:
-                - RGB tensor of shape [batch, 3]
-                - Density tensor of shape [batch, 1]
-        """
+            # Colors are values [0, 1] floats
+            # colors ~ (batch, 3)
+            rgb = torch.sigmoid(self.decoder_color(fdir))
 
-        if lod_idx is None:
-            lod_idx = len(self.grid.active_lods) - 1
-        batch, _ = coords.shape
+        if require_transient:
+            transient = self.decoder_transient(torch.concat([feats_t, density_feats],-1))
+            rgb_t = torch.relu(transient[...,2:5])
+            density_t = torch.relu(transient[...,0:1])
+            beta_t = self.beta_min + torch.nn.functional.softplus(transient[...,1:2])
 
-        # Embed coordinates into high-dimensional vectors with the grid.
-        feats_t = self.grid_t[idx].interpolate(coords, lod_idx).reshape(batch, self.effective_feature_dim())
+        out_dict = {}
+        out_dict['density'] = density
+        if require_color:
+            out_dict['rgb'] = rgb
+        if require_transient:
+            out_dict['rgb_t'] = rgb_t
+            out_dict['density_t'] = density_t
+            out_dict['beta_t'] = beta_t
 
-        # Optionally concat the positions to the embedding
-        if self.pos_embedder is not None:
-            embedded_pos = self.pos_embedder(coords).view(batch, self.pos_embed_dim)
-            feats_t = torch.cat([feats_t, embedded_pos], dim=-1)
-
-        transient = self.decoder_transient(feats_t)
-        rgb_t = torch.relu(transient[...,2:5])
-        density_t = torch.relu(transient[...,0:1])
-        beta_t = self.beta_min + torch.nn.functional.softplus(transient[...,1:2])
-
-        return dict(rgb_t=rgb_t, density_t=density_t, beta_t=beta_t)
-
-
+        return out_dict
 
     def effective_feature_dim(self, grid = None):
         if grid is None:

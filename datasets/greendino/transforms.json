@@ -14,7 +14,7 @@
   "cy": 632.0,
   "w": 1264.0,
   "h": 1264.0,
-  "aabb_scale": 4,
+  "aabb_scale": 2,
   "frames": [
     {
       "file_path": "./images/0.jpg",

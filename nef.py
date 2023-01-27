@@ -140,6 +140,7 @@ class Nef(BaseNeuralField):
                                         num_layers=num_layers + 1,
                                         hidden_dim=hidden_dim,
                                         skip=[])
+            self.decoder_transient.lout.bias.data[0] = 1.0 
 
         self.beta_min = beta_min
 
@@ -164,78 +165,52 @@ class Nef(BaseNeuralField):
 
 
     def prune(self):
-        # """Prunes the blas based on current state.
-        # """
-        # if self.grid is not None:
-        #     if isinstance(self.grid, HashGrid):
-        #         density_decay = self.prune_density_decay
-        #         min_density = self.prune_min_density
-
-        #         self.grid.occupancy = self.grid.occupancy.cuda()
-        #         self.grid.occupancy = self.grid.occupancy * density_decay
-        #         points = self.grid.dense_points.cuda()
-        #         res = 2.0**self.grid.blas_level
-        #         samples = torch.rand(points.shape[0], 3, device=points.device)
-        #         samples = points.float() + samples
-        #         samples = samples / res
-        #         samples = samples * 2.0 - 1.0
-        #         sample_views = torch.FloatTensor(sample_unif_sphere(samples.shape[0])).to(points.device)
-        #         with torch.no_grad():
-        #             density = self.forward(coords=samples, ray_d=sample_views, channels="density")
-        #         self.grid.occupancy = torch.stack([density[:, 0], self.grid.occupancy], -1).max(dim=-1)[0]
-
-        #         mask = self.grid.occupancy > min_density
-
-        #         _points = points[mask]
-
-        #         if _points.shape[0] == 0:
-        #             return
-
-        #         if hasattr(self.grid.blas.__class__, "from_quantized_points"):
-        #             self.grid.blas = self.grid.blas.__class__.from_quantized_points(_points, self.grid.blas_level)
-        #         else:
-        #             raise Exception(f"The BLAS {self.grid.blas.__class__.__name__} does not support initialization " 
-        #                              "from_quantized_points, which is required for pruning.")
-
-        #     else:
-        #         raise NotImplementedError(f'Pruning not implemented for grid type {self.grid}')
+        """Prunes the blas based on current state.
+        """
+        print('prune')
+        if not isinstance(self.grid, HashGrid):
+            raise NotImplementedError(f'Pruning not implemented for grid type {self.grid}')
+        for grid in self.grid_t:
+            if not isinstance(self.grid, HashGrid):
+                raise NotImplementedError(f'Pruning not implemented for grid type {self.grid}')
 
         if self.grid_t is not None:
+            density_decay = self.prune_density_decay
+            min_density = self.prune_min_density
+
+            self.grid.occupancy = self.grid.occupancy.cuda()
+            self.grid.occupancy = self.grid.occupancy * density_decay
+            points = self.grid.dense_points.cuda()
+            res = 2.0**self.grid.blas_level
+
             for i, grid in enumerate(self.grid_t):
-                if isinstance(grid, HashGrid):
-                    density_decay = self.prune_density_decay
-                    min_density = self.prune_min_density
 
-                    grid.occupancy = grid.occupancy.cuda()
-                    grid.occupancy = grid.occupancy * density_decay
-                    points = grid.dense_points.cuda()
-                    res = 2.0**grid.blas_level
-                    samples = torch.rand(points.shape[0], 3, device=points.device)
-                    samples = points.float() + samples
-                    samples = samples / res
-                    samples = samples * 2.0 - 1.0
-                    sample_views = torch.FloatTensor(sample_unif_sphere(samples.shape[0])).to(points.device)
-                    with torch.no_grad():
-                        density, density_t = self.forward(coords=samples, idx=i, ray_d=sample_views, channels=["density","density_t"])
-                    density=density + density_t
-                    del density_t
-                    grid.occupancy = torch.stack([density[:, 0], grid.occupancy], -1).max(dim=-1)[0]
+                grid.occupancy = grid.occupancy.cuda()
+                grid.occupancy = grid.occupancy * density_decay
+                points_t = grid.dense_points.cuda()
 
-                    mask = grid.occupancy > min_density
+                samples = torch.rand(points_t.shape[0], 3, device=points_t.device)
+                samples = points_t.float() + samples
+                samples = samples / res
+                samples = samples * 2.0 - 1.0
 
-                    _points = points[mask]
+                sample_views = torch.FloatTensor(sample_unif_sphere(samples.shape[0])).to(points_t.device)
+                with torch.no_grad():
+                    density, density_t = self.forward(coords=samples, idx=i, ray_d=sample_views, channels=["density","density_t"])
+                    density_t = density + density_t
+                
+                self.grid.occupancy = torch.stack([density[:, 0], grid.occupancy], -1).max(dim=-1)[0]
+                grid.occupancy = torch.stack([density_t[:, 0], grid.occupancy], -1).max(dim=-1)[0]
 
-                    if _points.shape[0] == 0:
-                        return
+                del density, density_t
 
-                    if hasattr(grid.blas.__class__, "from_quantized_points"):
-                        grid.blas = grid.blas.__class__.from_quantized_points(_points, grid.blas_level)
-                    else:
-                        raise Exception(f"The BLAS {grid.blas.__class__.__name__} does not support initialization " 
-                                        "from_quantized_points, which is required for pruning.")
-
-                else:
-                    raise NotImplementedError(f'Pruning not implemented for grid type {grid}')
+                mask_t = grid.occupancy > min_density
+                _points_t = points_t[mask_t]
+                grid.blas = grid.blas.__class__.from_quantized_points(_points_t, grid.blas_level)
+            
+            mask = self.grid.occupancy > min_density
+            _points = points[mask]
+            self.grid.blas = self.grid.blas.__class__.from_quantized_points(_points, grid.blas_level)
 
     def forward(self, channels=None, **kwargs):
         """Queries the neural field with channels.
@@ -311,7 +286,7 @@ class Nef(BaseNeuralField):
         self._register_forward_function(self.sample, ["density", "rgb", "rgb_t", "density_t", "beta_t"])
 
 
-    def sample(self, coords, ray_d, idx=None, lod_idx=None, channels=None):
+    def sample(self, coords, ray_d=None, idx=None, lod_idx=None, channels=None):
         """Compute color and density [particles / vol] for the provided coordinates.
 
         Args:
@@ -326,51 +301,90 @@ class Nef(BaseNeuralField):
         """
         
         require_color = "rgb" in channels
-        require_transient =  ("rgb_t" in channels )or( "density_t" in channels) or ("beta_t" in channels)
+        require_transient =  ("rgb_t" in channels ) or ( "density_t" in channels) or ("beta_t" in channels)
 
-        if lod_idx is None:
-            lod_idx = len(self.grid.active_lods) - 1
-        batch, _ = coords.shape
+        original_shape=coords.shape
+       
+        threshold = 1
+        mask = torch.sum(torch.square(coords), 1) < threshold
+        coords = coords[mask]
+        ray_d = ray_d[mask]
 
-        # Embed coordinates into high-dimensional vectors with the grid.
-        feats = self.grid.interpolate(coords, lod_idx).reshape(batch, self.effective_feature_dim())
-        if require_transient:
-            feats_t = self.grid_t[idx].interpolate(coords, lod_idx).reshape(batch, self.effective_feature_dim())
+        if len(coords)>0:
 
-        # Optionally concat the positions to the embedding
-        if self.pos_embedder is not None:
-            embedded_pos = self.pos_embedder(coords).view(batch, self.pos_embed_dim)
-            feats = torch.cat([feats, embedded_pos], dim=-1)
+            if lod_idx is None:
+                lod_idx = len(self.grid.active_lods) - 1
+            batch, _ = coords.shape
+
+            # Embed coordinates into high-dimensional vectors with the grid.
+            feats = self.grid.interpolate(coords, lod_idx).reshape(batch, self.effective_feature_dim())
             if require_transient:
-                feats_t = torch.cat([feats_t, embedded_pos], dim=-1)
+                if idx is None:
+                    idx=0
+                feats_t = self.grid_t[idx].interpolate(coords, lod_idx).reshape(batch, self.effective_feature_dim())
 
-        # Decode high-dimensional vectors to density features.
-        density_feats = self.decoder_density(feats)
+            # Optionally concat the positions to the embedding
+            if self.pos_embedder is not None:
+                embedded_pos = self.pos_embedder(coords).view(batch, self.pos_embed_dim)
+                feats = torch.cat([feats, embedded_pos], dim=-1)
+                if require_transient:
+                    feats_t = torch.cat([feats_t, embedded_pos], dim=-1)
 
-        # Density is [particles / meter], so need to be multiplied by distance
-        # density ~ (batch, 1)
-        density = torch.relu(density_feats[...,0:1])
+            # Decode high-dimensional vectors to density features.
+            density_feats = self.decoder_density(feats)
 
-        if require_color:
+            # Density is [particles / meter], so need to be multiplied by distance
+            # density ~ (batch, 1)
+            density = torch.zeros(original_shape[0], 1, device = density_feats.device, dtype=density_feats.dtype)
+            density[mask] = torch.relu(density_feats[...,0:1])
 
-            appearence = torch.broadcast_to(self.appearence_embedding[idx:idx+1], (batch, self.appearence_feat))
+            if require_color:
 
-            # Concatenate embedded view directions.
-            if self.view_embedder is not None:
-                embedded_dir = self.view_embedder(-ray_d).view(batch, self.view_embed_dim)
-                fdir = torch.cat([density_feats, appearence, embedded_dir], dim=-1)
-            else:
-                fdir = torch.cat([density_feats, appearence], dim=-1)
+                if ray_d is None:
+                    raise Exception(f"Ray direction is required to compute static color")
 
-            # Colors are values [0, 1] floats
-            # colors ~ (batch, 3)
-            rgb = torch.sigmoid(self.decoder_color(fdir))
+                if idx is not None:
+                    appearence = torch.broadcast_to(self.appearence_embedding[idx:idx+1], (batch, self.appearence_feat))
+                else:
+                    appearence = torch.broadcast_to(self.appearence_embedding[:1], (batch, self.appearence_feat))
 
-        if require_transient:
-            transient = self.decoder_transient(torch.concat([feats_t, density_feats],-1))
-            rgb_t = torch.relu(transient[...,2:5])
-            density_t = torch.relu(transient[...,0:1])
-            beta_t = self.beta_min + torch.nn.functional.softplus(transient[...,1:2])
+                # Concatenate embedded view directions.
+                if self.view_embedder is not None:
+                    embedded_dir = self.view_embedder(-ray_d).view(batch, self.view_embed_dim)
+                    fdir = torch.cat([density_feats, appearence, embedded_dir], dim=-1)
+                else:
+                    fdir = torch.cat([density_feats, appearence], dim=-1)
+
+                # Colors are values [0, 1] floats
+                # colors ~ (batch, 3)
+                c = torch.sigmoid(self.decoder_color(fdir))
+                rgb = torch.zeros(original_shape[0], 3, device = c.device, dtype=c.dtype)
+                rgb[mask] = c
+
+            if require_transient:
+                transient = self.decoder_transient(torch.concat([feats_t, density_feats],-1))
+
+                c_t = torch.sigmoid(transient[...,2:5])
+                d_t = torch.nn.functional.softplus(transient[...,0:1])
+                b_t = self.beta_min + torch.nn.functional.softplus(transient[...,1:2])
+
+                rgb_t = torch.zeros(original_shape[0], 3, device = c_t.device, dtype=c_t.dtype)
+                density_t = torch.zeros(original_shape[0], 1, device = d_t.device, dtype=d_t.dtype)
+                beta_t = torch.zeros(original_shape[0], 1, device = b_t.device, dtype=b_t.dtype)
+
+                rgb_t[mask] = c_t
+                density_t[mask] = d_t
+                beta_t[mask] = b_t
+        else:
+            density = torch.zeros(original_shape[0], 1, device = coords.device, dtype=coords.dtype)
+            if require_color:
+                rgb = torch.zeros(original_shape[0], 3, device = coords.device, dtype=coords.dtype)
+            if require_transient:
+                rgb_t = torch.zeros(original_shape[0], 3, device = coords.device, dtype=coords.dtype)
+                density_t = torch.zeros(original_shape[0], 1, device = coords.device, dtype=coords.dtype)
+                beta_t = torch.zeros(original_shape[0], 1, device = coords.device, dtype=coords.dtype)
+
+
 
         out_dict = {}
         out_dict['density'] = density

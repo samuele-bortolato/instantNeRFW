@@ -62,8 +62,16 @@ class Trainer(BaseTrainer):
 
             # RGB Loss
             #rgb_loss = F.mse_loss(rb.rgb, img_gts, reduction='none')
-            rgb_loss = torch.abs(rb.rgb[..., :3] - img_gts[..., :3])
-            
+            #rgb_loss = torch.abs(rb.rgb[..., :3] - img_gts[..., :3])     # <- Original
+            c = torch.square((rb.rgb[..., :3] - img_gts[..., :3]))
+            rgb_loss = c #/ (2 * torch.square(rb.beta))
+            #rgb_loss += torch.square(torch.log(rb.beta)) / 2
+            d = rb.mean_density_t
+            rgb_loss += 1e-2*torch.square(d) + 1e-3*d
+            empty=rb.alpha * torch.all(img_gts[..., :3]==0, 1, keepdim=True) + (1.-rb.alpha) * (1-1*torch.all(img_gts[..., :3]==0, 1, keepdim=True))*0.1
+            print(c.mean(), rb.mean_density_t, empty.mean())
+            #rgb_loss += 0.01*empty
+
             rgb_loss = rgb_loss.mean()
             loss += self.extra_args["rgb_loss"] * rgb_loss
             self.log_dict['rgb_loss'] += rgb_loss.item()

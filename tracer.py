@@ -3,6 +3,7 @@
 #   - added support for renderning only the static scene
 #   (- batched rendering to not crash the gpu with low memory)
 
+import numpy as np
 import torch
 import torch.nn as nn
 import kaolin.render.spc as spc_render
@@ -10,6 +11,9 @@ from wisp.core import RenderBuffer
 from wisp.tracers import BaseTracer
 from wisp.core import Rays
 import inspect
+import time
+
+from raytrace_custom import exponential_integration
 
 class Tracer(BaseTracer):
     """Tracer class for sparse (packed) radiance fields.
@@ -126,7 +130,7 @@ class Tracer(BaseTracer):
 
 
     def trace(self, nef, rays, idx, channels, extra_channels,
-        lod_idx=None, raymarch_type='voxel', num_steps=64, step_size=1.0, bg_color='white'):
+        lod_idx=None, raymarch_type='voxel', num_steps=64, step_size=1.0, bg_color='white', max_samples=2**17):
         """Trace the rays against the neural field.
 
         Args:
@@ -162,91 +166,207 @@ class Tracer(BaseTracer):
             rgb = torch.ones(N, 3, device=rays.origins.device)
         else:
             rgb = torch.zeros(N, 3, device=rays.origins.device)
+        var = torch.ones(N, 3, device=rays.origins.device) * 0.1
         hit = torch.zeros(N, device=rays.origins.device, dtype=torch.bool)
         out_alpha = torch.zeros(N, 1, device=rays.origins.device)
 
         if lod_idx is None:
             lod_idx = nef.grid.num_lods - 1
 
-        # By default, PackedRFTracer will attempt to use the highest level of detail for the ray sampling.
-        # This however may not actually do anything; the ray sampling behaviours are often single-LOD
-        # and is governed by however the underlying feature grid class uses the BLAS to implement the sampling.
-        raymarch_results = nef.grid_t[idx].raymarch(rays,
-                                             level=nef.grid.active_lods[lod_idx],
-                                             num_samples=num_steps,
-                                             raymarch_type=self.raymarch_type)
-        ridx = raymarch_results.ridx
-        samples = raymarch_results.samples
-        deltas = raymarch_results.deltas
-        boundary = raymarch_results.boundary
-        depths = raymarch_results.depth_samples
+        if idx is not None: # use transients
 
-        # Get the indices of the ray tensor which correspond to hits
-        ridx_hit = ridx[spc_render.mark_pack_boundaries(ridx.int())]
-        # Compute the color and density for each ray and their samples
-        hit_ray_d = rays.dirs.index_select(0, ridx)
+            # By default, PackedRFTracer will attempt to use the highest level of detail for the ray sampling.
+            # This however may not actually do anything; the ray sampling behaviours are often single-LOD
+            # and is governed by however the underlying feature grid class uses the BLAS to implement the sampling.
+            raymarch_results = nef.grid_t[idx].raymarch(rays,
+                                                level=nef.grid.active_lods[lod_idx],
+                                                num_samples=num_steps,
+                                                raymarch_type=self.raymarch_type)
+            ridx = raymarch_results.ridx
+            samples = raymarch_results.samples
+            deltas = raymarch_results.deltas
+            boundary = raymarch_results.boundary
+            depths = raymarch_results.depth_samples
 
-        # Compute the color and density for each ray and their samples
-        num_samples = samples.shape[0]
+            # Get the indices of the ray tensor which correspond to hits
+            ridx_hit = ridx[spc_render.mark_pack_boundaries(ridx.int())]
+            # Compute the color and density for each ray and their samples
+            hit_ray_d = rays.dirs.index_select(0, ridx)
+
+            # Compute the color and density for each ray and their samples
+            num_samples = samples.shape[0]
+            
+            if len(samples)>max_samples:
+
+                color=[]
+                density=[]
+                color_t = []
+                density_t = []
+                beta = []
+                
+                for i in range((len(samples)+max_samples-1)//max_samples):
+
+                    c, d, c_t, d_t, b = nef( coords = samples[i*max_samples:(i+1)*max_samples], 
+                                            ray_d = hit_ray_d[i*max_samples:(i+1)*max_samples], 
+                                            idx = idx,
+                                            lod_idx = lod_idx, 
+                                            channels = ["rgb", "density", "rgb_t", "density_t", "beta_t"])
+
+                    color.append(c)
+                    density.append(d)
+                    color_t.append(c_t)
+                    density_t.append(d_t)
+                    beta.append(b)
+                color=torch.concat(color)
+                density=torch.concat(density)
+                color_t=torch.concat(color_t)
+                density_t=torch.concat(density_t)
+                beta=torch.concat(beta)
+
+            else:
+                color, density, color_t, density_t, beta = nef(coords=samples, ray_d=hit_ray_d, idx = idx, lod_idx=lod_idx, channels=["rgb", "density", "rgb_t", "density_t", "beta_t"])
+
+            density = density.reshape(num_samples, 1)    # Protect against squeezed return shape
+            density_t = density_t.reshape(num_samples, 1)
+            del ridx
+
+            # Compute optical thickness
+            tau = density * deltas       
+            tau_t = density_t * deltas
+            
+            deltas
+            ray_colors, transmittance = exponential_integration(color, tau, 
+                                                                color_t, tau_t,
+                                                                boundary, exclusive=True)
+
+            # Alpha-compositing the Variance/Uncentainty (required for the 1st and 2nd loss terms)
+            beta, _ = spc_render.exponential_integration(beta, tau_t, boundary, exclusive=True)
+            
+            # Evaluating mean transient density along a ray (required for the 3rd loss term)
+            # num_samples_per_ray = torch.cat((boundary.nonzero().squeeze()[1:], torch.tensor([boundary.shape[0]], device='cuda'))) - boundary.nonzero().squeeze()
+            # num_samples_per_ray = torch.unsqueeze(num_samples_per_ray, dim=-1) 
+            # mean_ray_density_t = spc_render.sum_reduce(density_t, boundary) / num_samples_per_ray
+            
+            
+            if "depth" in channels:
+                ray_depth = spc_render.sum_reduce(depths.reshape(num_samples, 1) * transmittance, boundary)
+                depth[ridx_hit, :] = ray_depth
+
+            alpha = spc_render.sum_reduce(transmittance, boundary)
+            out_alpha[ridx_hit] = alpha
+            hit[ridx_hit] = alpha[...,0] > 0.0
+
+            # Populate the background
+            if bg_color == 'white':
+                color = (1.0-alpha) + ray_colors
+            else:
+                color = alpha * ray_colors
+            rgb[ridx_hit] = color
+            var[ridx_hit] = beta
+
+            extra_outputs = {'mean_density': density.mean(), 'mean_density_t': density_t.mean(), 'beta': var}
+
+            for channel in extra_channels:
+                feats = nef(coords=samples,
+                            ray_d=hit_ray_d,
+                            lod_idx=lod_idx,
+                            channels=channel)
+                num_channels = feats.shape[-1]
+                ray_feats, transmittance = spc_render.exponential_integration(
+                    feats.view(num_samples, num_channels), tau, boundary, exclusive=True
+                )
+                composited_feats = alpha * ray_feats
+                out_feats = torch.zeros(N, num_channels, device=feats.device)
+                out_feats[ridx_hit] = composited_feats
+                extra_outputs[channel] = out_feats
+
+            return RenderBuffer(depth=depth, hit=hit, rgb=rgb, alpha=out_alpha, **extra_outputs)
         
-        max_samples=2**17
-        if len(samples)>max_samples:
+        else: # only static
 
-            color=[]
-            density=[]
-            for i in range((len(samples)+max_samples-1)//max_samples):
+            # By default, PackedRFTracer will attempt to use the highest level of detail for the ray sampling.
+            # This however may not actually do anything; the ray sampling behaviours are often single-LOD
+            # and is governed by however the underlying feature grid class uses the BLAS to implement the sampling.
+            raymarch_results = nef.grid.raymarch(rays,
+                                                level=nef.grid.active_lods[lod_idx],
+                                                num_samples=num_steps,
+                                                raymarch_type=raymarch_type)
+            ridx = raymarch_results.ridx
+            samples = raymarch_results.samples
+            deltas = raymarch_results.deltas
+            boundary = raymarch_results.boundary
+            depths = raymarch_results.depth_samples
 
-                d, c, _, _, _ = nef( coords = samples[i*max_samples:(i+1)*max_samples], 
-                            ray_d = hit_ray_d[i*max_samples:(i+1)*max_samples], 
-                            idx = idx,
-                            lod_idx = lod_idx, 
-                            channels = ["density", "rgb", "rgb_t", "density_t", "beta_t"])
+            # Get the indices of the ray tensor which correspond to hits
+            ridx_hit = ridx[spc_render.mark_pack_boundaries(ridx.int())]
+            # Compute the color and density for each ray and their samples
+            hit_ray_d = rays.dirs.index_select(0, ridx)
 
-                color.append(c)
-                density.append(d)
-            color=torch.concat(color)
-            density=torch.concat(density)
+            # Compute the color and density for each ray and their samples
+            num_samples = samples.shape[0]
 
-        else:
-            density, color, _, _, _ = nef(coords=samples, ray_d=hit_ray_d, lod_idx=lod_idx, channels=["density", "rgb", "rgb_t", "density_t", "beta_t"])
+            
+            if len(samples)>max_samples:
 
-        density = density.reshape(num_samples, 1)    # Protect against squeezed return shape
-        del ridx
+                color=[]
+                density=[]
 
-        # Compute optical thickness
-        tau = density * deltas
-        del density, deltas
-        ray_colors, transmittance = spc_render.exponential_integration(color, tau, boundary, exclusive=True)
+                for i in range((len(samples)+max_samples-1)//max_samples):
 
-        if "depth" in channels:
-            ray_depth = spc_render.sum_reduce(depths.reshape(num_samples, 1) * transmittance, boundary)
-            depth[ridx_hit, :] = ray_depth
+                    c, d = nef( coords = samples[i*max_samples:(i+1)*max_samples], 
+                                ray_d = hit_ray_d[i*max_samples:(i+1)*max_samples], 
+                                idx = idx,
+                                lod_idx = lod_idx, 
+                                channels = ["rgb", "density"])
 
-        alpha = spc_render.sum_reduce(transmittance, boundary)
-        out_alpha[ridx_hit] = alpha
-        hit[ridx_hit] = alpha[...,0] > 0.0
+                    color.append(c)
+                    density.append(d)
 
-        # Populate the background
-        if bg_color == 'white':
-            color = (1.0-alpha) + ray_colors
-        else:
-            color = alpha * ray_colors
-        rgb[ridx_hit] = color
+                color=torch.concat(color)
+                density=torch.concat(density)
 
-        extra_outputs = {}
-        for channel in extra_channels:
-            feats = nef(coords=samples,
-                        ray_d=hit_ray_d,
-                        lod_idx=lod_idx,
-                        channels=channel)
-            num_channels = feats.shape[-1]
-            ray_feats, transmittance = spc_render.exponential_integration(
-                feats.view(num_samples, num_channels), tau, boundary, exclusive=True
-            )
-            composited_feats = alpha * ray_feats
-            out_feats = torch.zeros(N, num_channels, device=feats.device)
-            out_feats[ridx_hit] = composited_feats
-            extra_outputs[channel] = out_feats
+            else:
+                color, density = nef(coords=samples, ray_d=hit_ray_d, lod_idx=lod_idx, channels=["rgb", "density"])
 
-        return RenderBuffer(depth=depth, hit=hit, rgb=rgb, alpha=out_alpha, **extra_outputs)
+            density = density.reshape(num_samples, 1)    # Protect against squeezed return shape
+            del ridx
+            #mask=density[:,0]<15
+            #density[mask]=0
+
+            # Compute optical thickness
+            tau = density * deltas
+            del density, deltas
+            ray_colors, transmittance = spc_render.exponential_integration(color, tau, boundary, exclusive=True)
+
+            if "depth" in channels:
+                ray_depth = spc_render.sum_reduce(depths.reshape(num_samples, 1) * transmittance, boundary)
+                depth[ridx_hit, :] = ray_depth
+
+            alpha = spc_render.sum_reduce(transmittance, boundary)
+            out_alpha[ridx_hit] = alpha
+            hit[ridx_hit] = alpha[...,0] > 0.0
+
+            # Populate the background
+            if bg_color == 'white':
+                color = (1.0-alpha) + ray_colors
+            else:
+                color = alpha * ray_colors
+            rgb[ridx_hit] = color
+
+            extra_outputs = {}
+            for channel in extra_channels:
+                feats = nef(coords=samples,
+                            ray_d=hit_ray_d,
+                            lod_idx=lod_idx,
+                            channels=channel)
+                num_channels = feats.shape[-1]
+                ray_feats, transmittance = spc_render.exponential_integration(
+                    feats.view(num_samples, num_channels), tau, boundary, exclusive=True
+                )
+                composited_feats = alpha * ray_feats
+                out_feats = torch.zeros(N, num_channels, device=feats.device)
+                out_feats[ridx_hit] = composited_feats
+                extra_outputs[channel] = out_feats
+
+            return RenderBuffer(depth=depth, hit=hit, rgb=rgb, alpha=out_alpha, **extra_outputs)
 

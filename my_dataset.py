@@ -19,7 +19,7 @@ class MyMultiviewDataset(Dataset):
 
     def __init__(self, 
         dataset_path             : str,
-        aabb_scale               : int,
+        aabb_scale               : int      = 2,
         multiview_dataset_format : str      = 'standard',
         mip                      : int      = None,
         bg_color                 : str      = None,

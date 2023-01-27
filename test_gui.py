@@ -24,6 +24,7 @@ from gui import DemoApp
 
 
 from dataset import dataset
+from my_dataset import MyMultiviewDataset
 from trainer import Trainer
 from tracer import Tracer
 from nef import Nef
@@ -44,12 +45,11 @@ import numpy as np
 
 
 #dataset_path='C:/Users/Sam/Downloads/V8/V8_'
-#model_path='C:/Sam/Scuola/02_UniBo/2_anno/ML4CV/instantNeRFW/_results/logs/runs/siggraph_2022_demo/20230118-171927/model.pth'
-dataset_path='datasets/greendino/aabb4'
+dataset_path='datasets/lego/'
 model_path=None
-epochs=100
+epochs=1000
 
-is_gui_mode=False
+is_gui_mode=True
 
 
 
@@ -59,10 +59,11 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # NeRF is trained with a MultiviewDataset, which knows how to generate RGB rays from a set of images + cameras
 train_dataset = dataset(
     dataset_path=dataset_path,
+    aabb_scale=2,
     #multiview_dataset_format='rtmv',
     multiview_dataset_format='standard',
-    mip=1,
-    bg_color='white',
+    mip=0,
+    bg_color='black',
     dataset_num_workers=-1,
     transform=SampleRays(
         num_samples=2048
@@ -74,7 +75,7 @@ grid = HashGrid.from_geometric(feature_dim=2,
                                multiscale_type='cat',
                                codebook_bitwidth=18,
                                min_grid_res=16,
-                               max_grid_res=2048,
+                               max_grid_res=256,
                                blas_level=6)
 
 grid_t=[]
@@ -82,28 +83,30 @@ for i in range(len(train_dataset)):
     grid_t.append(HashGrid.from_geometric(feature_dim=2,
                                         num_lods=16,
                                         multiscale_type='cat',
-                                        codebook_bitwidth=10,
+                                        codebook_bitwidth=14,
                                         min_grid_res=16,
-                                        max_grid_res=2048,
+                                        max_grid_res=256,
                                         blas_level=6).cuda())
 
-appearence_emb=torch.randn(len(train_dataset), 48, device='cuda')*0.01
+appearence_emb=torch.randn(len(train_dataset), 2, device='cuda')*0.01
 
 from wisp.models.nefs import NeuralRadianceField
 nerf =  Nef(grid=grid, 
             grid_t=grid_t,
             appearence_embedding=appearence_emb,
             view_embedder='positional',
+            view_multires=2,
             hidden_dim = 128,
             prune_density_decay=0.95,
             prune_min_density=0.01*1024/np.sqrt(3)
             )
 
 tracer = Tracer(raymarch_type='ray', num_steps=1024)
+#tracer = PackedRFTracer(raymarch_type='ray', num_steps=1024)
 
 from wisp.renderer.core.api.renderers_factory import register_neural_field_type
-from wisp.renderer.core.api.raytraced_renderer import RayTracedRenderer
-register_neural_field_type(Nef, Tracer, RayTracedRenderer)
+from wisp.renderer.core.renderers.radiance_pipeline_renderer import NeuralRadianceFieldPackedRenderer
+register_neural_field_type(Nef, Tracer, NeuralRadianceFieldPackedRenderer)
 
 if model_path is not None:
     pipeline = torch.load(model_path)
@@ -121,8 +124,8 @@ trainer = Trainer(pipeline=pipeline,
                            dataset=train_dataset, #train_dataset
                            num_epochs=epochs,
                            batch_size=1,    # 1 image per batch
-                           optim_cls=torch.optim.RMSprop,
-                           lr=0.001,
+                           optim_cls=torch.optim.Adam,
+                           lr=lr,
                            weight_decay=0.0,     # Weight decay, applied only to decoder weights.
                            grid_lr_weight=100.0, # Relative learning rate weighting applied only for the grid parameters
                            optim_params=dict(lr=lr, weight_decay=weight_decay),
@@ -153,7 +156,7 @@ trainer = Trainer(pipeline=pipeline,
                                mip=1
                            ),
                            render_tb_every=-1,
-                           save_every=100,
+                           save_every=5,
                            scene_state=scene_state,
                            trainer_mode='train',
                            using_wandb=False)

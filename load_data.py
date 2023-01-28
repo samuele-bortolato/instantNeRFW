@@ -248,7 +248,8 @@ def load_nerf_standard_data(root, aabb_scale, split='train', bg_color='white', n
                                   y0=y0,
                                   dtype=torch.float64)
         camera.change_coordinate_system(blender_coords())
-        cameras[basenames[i]] = camera
+        cameras[i] = camera
+        """
         ray_grid = generate_centered_pixel_coords(camera.width, camera.height,
                                                   camera.width, camera.height, device='cuda')
         rays.append \
@@ -256,7 +257,7 @@ def load_nerf_standard_data(root, aabb_scale, split='train', bg_color='white', n
                 ('cpu'))
 
     rays = Rays.stack(rays).to(dtype=torch.float)
-
+    """
     rgbs = imgs[... ,:3]
     alpha = imgs[... ,3:4]
     if alpha.numel() == 0:
@@ -272,7 +273,7 @@ def load_nerf_standard_data(root, aabb_scale, split='train', bg_color='white', n
             rgbs[... ,:3] += ( 1 -alpha)
             rgbs = np.clip(rgbs, 0.0, 1.0)
 
-    return {"imgs": rgbs, "masks": masks, "rays": rays, "cameras": cameras}
+    return {"imgs": rgbs, "masks": masks, "cameras": cameras}
 
 
 #############################################################################################

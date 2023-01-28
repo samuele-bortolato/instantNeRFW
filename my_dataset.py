@@ -118,7 +118,6 @@ class MyMultiviewDataset(Dataset):
     def __getitem__(self, idx : int):
         """Returns a ray.
         """
-        idx = 0
         camera = self.data['cameras'][idx]
         pixel_x = (torch.rand(self.num_samples) - camera.x0 / camera.width) * 2 - 1 
         pixel_y = (torch.rand(self.num_samples) + camera.y0 / camera.height) * 2 - 1
@@ -126,7 +125,6 @@ class MyMultiviewDataset(Dataset):
                               -pixel_y * camera.tan_half_fov(CameraFOV.VERTICAL),
                               -torch.ones_like(pixel_x)), dim=-1)
 
-        ray_dir = ray_dir.reshape(-1, 3)    
         ray_orig = torch.zeros_like(ray_dir)
 
         ray_orig, ray_dir = camera.extrinsics.inv_transform_rays(ray_orig, ray_dir)
@@ -135,12 +133,10 @@ class MyMultiviewDataset(Dataset):
 
         rays = Rays(origins=ray_orig, dirs=ray_dir, dist_min=camera.near, dist_max=camera.far)
         rays = rays.to('cpu').to(dtype=torch.float)
-        print(rays)
-        input()
 
         out = {}
         out['rays'] = rays
-        out['imgs'] = self.bilinear_interpolation(pixel_x, pixel_y, self.data['imgs'][idx])
+        out['imgs'] = self.bilinear_interpolation(pixel_y, pixel_x, self.data['imgs'][idx])
 
         if self.transform is not None:
             out = self.transform(out)
@@ -150,8 +146,8 @@ class MyMultiviewDataset(Dataset):
 
     @staticmethod
     def bilinear_interpolation(x, y, image):        
-        x = x * (image.shape[0] - 1)
-        y = y * (image.shape[1] - 1)
+        x = (x+1)/2 * (image.shape[0] - 1)
+        y = (y+1)/2 * (image.shape[1] - 1)
         x_floor = torch.floor(x).to(dtype=torch.int64)
         x_ceil = torch.ceil(x).to(dtype=torch.int64)
         y_floor = torch.floor(y).to(dtype=torch.int64)

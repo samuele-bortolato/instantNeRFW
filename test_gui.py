@@ -32,16 +32,6 @@ from nef import Nef
 
 import numpy as np
 
-# parser = argparse.ArgumentParser(description='An example app over kaolin-wisp to visualize internal layers '
-#                                              'of the NeRF decoder.')
-# parser.add_argument('--dataset-path', type=str,
-#                     help='Path to NeRF dataset, in standard format.')
-# parser.add_argument('--dataset-num-workers', type=int, default=16,
-#                     help='Number of workers for dataset preprocessing, if it supports multiprocessing. '
-#                          '-1 indicates no multiprocessing.')
-# parser.add_argument('--epochs', type=int, default=100,
-#                     help='Number of epochs to run the training.')
-# args = parser.parse_args()
 
 
 #dataset_path='C:/Users/Sam/Downloads/V8/V8_'
@@ -57,7 +47,7 @@ default_log_setup(level=logging.INFO)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # NeRF is trained with a MultiviewDataset, which knows how to generate RGB rays from a set of images + cameras
-train_dataset = dataset(
+train_dataset = MyMultiviewDataset(
     dataset_path=dataset_path,
     aabb_scale=2,
     #multiview_dataset_format='rtmv',
@@ -65,9 +55,10 @@ train_dataset = dataset(
     mip=0,
     bg_color='black',
     dataset_num_workers=-1,
-    transform=SampleRays(
-        num_samples=2048
-    )
+    # transform=SampleRays(
+    #     num_samples=2048
+    # )
+    num_samples=4096
 )
 
 grid = HashGrid.from_geometric(feature_dim=2,
@@ -79,7 +70,7 @@ grid = HashGrid.from_geometric(feature_dim=2,
                                blas_level=6)
 
 grid_t=[]
-for i in range(len(train_dataset)):
+for i in range(1):
     grid_t.append(HashGrid.from_geometric(feature_dim=2,
                                         num_lods=16,
                                         multiscale_type='cat',
@@ -101,7 +92,7 @@ nerf =  Nef(grid=grid,
             prune_min_density=0.01*1024/np.sqrt(3)
             )
 
-tracer = Tracer(raymarch_type='ray', num_steps=1024)
+tracer = Tracer(raymarch_type='ray', num_steps=512)
 #tracer = PackedRFTracer(raymarch_type='ray', num_steps=1024)
 
 from wisp.renderer.core.api.renderers_factory import register_neural_field_type

@@ -119,8 +119,12 @@ class MyMultiviewDataset(Dataset):
         """Returns a ray.
         """
         camera = self.data['cameras'][idx]
-        pixel_x = (torch.rand(self.num_samples) - camera.x0 / camera.width) * 2 - 1 
-        pixel_y = (torch.rand(self.num_samples) + camera.y0 / camera.height) * 2 - 1
+        pixel_x = torch.rand(self.num_samples) * 2 - 1 
+        pixel_y = torch.rand(self.num_samples) * 2 - 1
+
+        pixel_x = pixel_x*torch.abs(pixel_x)
+        pixel_y = pixel_y*torch.abs(pixel_y)
+    
         ray_dir = torch.stack((pixel_x * camera.tan_half_fov(CameraFOV.HORIZONTAL),
                               -pixel_y * camera.tan_half_fov(CameraFOV.VERTICAL),
                               -torch.ones_like(pixel_x)), dim=-1)

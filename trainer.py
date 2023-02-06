@@ -60,16 +60,20 @@ class Trainer(BaseTrainer):
         with torch.cuda.amp.autocast():
             rb = self.pipeline(rays=rays, idx=idx, lod_idx=lod_idx, channels=["rgb"])
 
-            # RGB Loss
+            # RGB Loss 
             #rgb_loss = F.mse_loss(rb.rgb, img_gts, reduction='none')
             #rgb_loss = torch.abs(rb.rgb[..., :3] - img_gts[..., :3])     # <- Original
             c = torch.square((rb.rgb[..., :3] - img_gts[..., :3]))
             rgb_loss = c #/ (2 * torch.square(rb.beta))
             #rgb_loss += torch.square(torch.log(rb.beta)) / 2
-            d = rb.mean_density_t
-            rgb_loss += 1e-2*torch.square(d) + 1e-3*d
-            empty=rb.alpha * torch.all(img_gts[..., :3]==0, 1, keepdim=True) + (1.-rb.alpha) * (1-1*torch.all(img_gts[..., :3]==0, 1, keepdim=True))*0.1
-            print(c.mean(), rb.mean_density_t, empty.mean())
+            rgb_loss += 1e-2*(1-torch.exp(-rb.density_t.mean()))
+            empty = rb.alpha * torch.all(img_gts[..., :3]==0, 1, keepdim=True) + (1.-rb.alpha) * (1-1*torch.all(img_gts[..., :3]==0, 1, keepdim=True))*0.1
+            empty_useless = rb.alpha * torch.exp( -50*torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()
+            d = 1-torch.exp(-(rb.density))#+rb.density_t
+            entropy = (-d*torch.log(d+1e-7)-(1-d)*torch.log(1-d+1e-7)).mean()
+            #rgb_loss += 1e-4 * entropy
+            rgb_loss+= 0.001 * empty_useless
+            print(c.mean(), rb.density_t.mean(),torch.sigmoid(100*self.pipeline.nef.backgroud_color),torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True).mean())
             #rgb_loss += 0.01*empty
 
             rgb_loss = rgb_loss.mean()

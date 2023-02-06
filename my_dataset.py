@@ -29,7 +29,8 @@ class MyMultiviewDataset(Dataset):
         bg_color                 : str      = None,
         dataset_num_workers      : int      = -1,
         transform                : Callable = None,
-        num_samples              : int       = 1024,
+        num_samples              : int      = 1024,
+        weighted_sampling        : bool     = False,
         **kwargs
     ):
         """Initializes the dataset class.
@@ -54,6 +55,7 @@ class MyMultiviewDataset(Dataset):
         self.dataset_num_workers = dataset_num_workers
         self.transform = transform
         self.num_samples = num_samples
+        self.weighted_sampling = weighted_sampling
 
         self.coords = self.data = self.img_shape = self.num_imgs = self.coords_center = self.coords_scale = None
         self.init()
@@ -121,9 +123,10 @@ class MyMultiviewDataset(Dataset):
         camera = self.data['cameras'][idx]
         pixel_x = torch.rand(self.num_samples) * 2 - 1 
         pixel_y = torch.rand(self.num_samples) * 2 - 1
-
-        pixel_x = pixel_x*torch.abs(pixel_x)
-        pixel_y = pixel_y*torch.abs(pixel_y)
+        
+        if self.weighted_sampling:
+            pixel_x = pixel_x*torch.abs(pixel_x)
+            pixel_y = pixel_y*torch.abs(pixel_y)
     
         ray_dir = torch.stack((pixel_x * camera.tan_half_fov(CameraFOV.HORIZONTAL),
                               -pixel_y * camera.tan_half_fov(CameraFOV.VERTICAL),

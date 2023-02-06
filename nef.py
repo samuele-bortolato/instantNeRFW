@@ -121,7 +121,7 @@ class Nef(BaseNeuralField):
                                        num_layers=num_layers,
                                        hidden_dim=hidden_dim,
                                        skip=[])
-        self.decoder_density.lout.bias.data[0] = 1.0 
+        self.decoder_density.lout.bias.data[0] = 0.1 
         
         self.decoder_color = BasicDecoder(input_dim=self.color_net_input_dim(),
                                      output_dim=3,
@@ -140,13 +140,14 @@ class Nef(BaseNeuralField):
                                         num_layers=num_layers + 1,
                                         hidden_dim=hidden_dim,
                                         skip=[])
-            self.decoder_transient.lout.bias.data[0] = 1.0 
+            self.decoder_transient.lout.bias.data[0] = 0.1
 
         self.beta_min = beta_min
 
         self.prune_density_decay = prune_density_decay
         self.prune_min_density = prune_min_density
 
+        self.backgroud_color=torch.nn.parameter.Parameter(torch.ones(3)*0.02)
 
         torch.cuda.empty_cache()
 
@@ -321,7 +322,8 @@ class Nef(BaseNeuralField):
             if require_transient:
                 if idx is None:
                     idx=0
-                feats_t = self.grid_t[idx].interpolate(coords, lod_idx).reshape(batch, self.effective_feature_dim())
+                feats_t = self.grid_t[0].interpolate(   coords + torch.tensor([10*idx,0,0], dtype=coords.dtype,device=coords.device), 
+                                                        lod_idx).reshape(batch, self.effective_feature_dim())
 
             # Optionally concat the positions to the embedding
             if self.pos_embedder is not None:

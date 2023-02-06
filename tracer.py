@@ -178,7 +178,7 @@ class Tracer(BaseTracer):
             # By default, PackedRFTracer will attempt to use the highest level of detail for the ray sampling.
             # This however may not actually do anything; the ray sampling behaviours are often single-LOD
             # and is governed by however the underlying feature grid class uses the BLAS to implement the sampling.
-            raymarch_results = nef.grid_t[idx].raymarch(rays,
+            raymarch_results = nef.grid.raymarch(rays,
                                                 level=nef.grid.active_lods[lod_idx],
                                                 num_samples=num_steps,
                                                 raymarch_type=self.raymarch_type)
@@ -257,14 +257,16 @@ class Tracer(BaseTracer):
             hit[ridx_hit] = alpha[...,0] > 0.0
 
             # Populate the background
-            if bg_color == 'white':
-                color = (1.0-alpha) + ray_colors
-            else:
-                color = alpha * ray_colors
+            # if bg_color == 'white':
+            #     color = (1.0-alpha) + ray_colors
+            # else:
+            #     color = alpha * ray_colors
+            color = (1.0-alpha)*torch.sigmoid(100*nef.backgroud_color) + alpha *ray_colors
+
             rgb[ridx_hit] = color
             var[ridx_hit] = beta
 
-            extra_outputs = {'mean_density': density.mean(), 'mean_density_t': density_t.mean(), 'beta': var}
+            extra_outputs = {'density': density, 'density_t': density_t, 'beta': var}
 
             for channel in extra_channels:
                 feats = nef(coords=samples,
@@ -347,10 +349,11 @@ class Tracer(BaseTracer):
             hit[ridx_hit] = alpha[...,0] > 0.0
 
             # Populate the background
-            if bg_color == 'white':
-                color = (1.0-alpha) + ray_colors
-            else:
-                color = alpha * ray_colors
+            # if bg_color == 'white':
+            #     color = (1.0-alpha) + ray_colors
+            # else:
+            #     color = alpha * ray_colors
+            color =  alpha *ray_colors
             rgb[ridx_hit] = color
 
             extra_outputs = {}

@@ -35,7 +35,7 @@ import numpy as np
 
 
 #dataset_path='C:/Users/Sam/Downloads/V8/V8_'
-dataset_path='datasets/lego/'
+dataset_path='datasets/greendino/'
 model_path=None
 epochs=1000
 
@@ -58,7 +58,7 @@ train_dataset = MyMultiviewDataset(
     # transform=SampleRays(
     #     num_samples=2048
     # )
-    num_samples=4096
+    num_samples=2048
 )
 
 grid = HashGrid.from_geometric(feature_dim=2,
@@ -92,7 +92,7 @@ nerf =  Nef(grid=grid,
             prune_min_density=0.01*1024/np.sqrt(3)
             )
 
-tracer = Tracer(raymarch_type='ray', num_steps=512)
+tracer = Tracer(raymarch_type='ray', num_steps=1024)
 #tracer = PackedRFTracer(raymarch_type='ray', num_steps=1024)
 
 from wisp.renderer.core.api.renderers_factory import register_neural_field_type

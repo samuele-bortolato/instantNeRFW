@@ -12,7 +12,7 @@ from wisp.tracers import BaseTracer
 from wisp.core import Rays
 import inspect
 
-from extensions.raytrace_custom import exponential_integration
+from extensions.raytrace import exponential_integration
 
 class tracer(BaseTracer):
     """Tracer class for sparse (packed) radiance fields.

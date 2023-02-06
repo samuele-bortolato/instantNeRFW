@@ -2,7 +2,7 @@ from typing import Callable
 import torch
 from torch.utils.data import Dataset
 #from wisp.datasets.formats import load_nerf_standard_data, load_rtmv_data
-from load_data import load_nerf_standard_data, load_rtmv_data
+from extensions.load_data import load_nerf_standard_data, load_rtmv_data
 from wisp.core import Rays
 from kaolin.render.camera.intrinsics import CameraFOV
 from wisp.ops.raygen import generate_pinhole_rays

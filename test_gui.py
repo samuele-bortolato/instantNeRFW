@@ -11,6 +11,7 @@ import os
 import argparse
 import logging
 import torch
+import numpy as np
 from wisp.app_utils import default_log_setup, args_to_log_format
 from wisp.framework import WispState
 from wisp.datasets import MultiviewDataset
@@ -19,20 +20,12 @@ from wisp.trainers import MultiviewTrainer
 from wisp.models.grids import OctreeGrid, HashGrid
 from wisp.models.pipeline import Pipeline
 from wisp.tracers import PackedRFTracer
-from funny_neural_field import FunnyNeuralField
-from gui import DemoApp
 
-
-from dataset import dataset
-from my_dataset import MyMultiviewDataset
-from trainer import Trainer
-from tracer import Tracer
-from nef import Nef
-
-
-import numpy as np
-
-
+from extensions.dataset import MyMultiviewDataset
+from extensions.trainer import Trainer
+from extensions.tracer import Tracer
+from extensions.nef import Nef
+from extensions.gui import DemoApp
 
 #dataset_path='C:/Users/Sam/Downloads/V8/V8_'
 dataset_path='datasets/greendino/'

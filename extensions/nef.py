@@ -147,7 +147,7 @@ class Nef(BaseNeuralField):
         self.prune_density_decay = prune_density_decay
         self.prune_min_density = prune_min_density
 
-        self.backgroud_color=torch.nn.parameter.Parameter(torch.ones(3)*0.02)
+        self.backgroud_color=torch.nn.parameter.Parameter(torch.ones(3)*0.01)
 
         torch.cuda.empty_cache()
 
@@ -306,8 +306,11 @@ class Nef(BaseNeuralField):
 
         original_shape=coords.shape
        
-        threshold = 1
-        mask = torch.sum(torch.square(coords), 1) < threshold
+        threshold = 0.5
+        if lod_idx is not None:
+            mask = torch.sum(torch.square(coords), 1) < threshold
+        else:
+            mask=torch.ones(original_shape[0],dtype=torch.bool)
         coords = coords[mask]
         ray_d = ray_d[mask]
 

@@ -37,13 +37,15 @@ class Trainer(BaseTrainer):
     def step(self, data):
         """Implement the optimization over image-space loss.
         """
+        update_every=4
+        if not hasattr(self, 'grad_iter'):
+            self.grad_iter=0
+            self.optimizer.zero_grad()
 
         # Map to device
         rays = data['rays'].to(self.device).squeeze(0)
         img_gts = data['imgs'].to(self.device).squeeze(0)
         idx = data['idx']
-
-        self.optimizer.zero_grad()
             
         loss = 0
         
@@ -66,13 +68,13 @@ class Trainer(BaseTrainer):
             c = torch.square((rb.rgb[..., :3] - img_gts[..., :3]))
             rgb_loss = c #/ (2 * torch.square(rb.beta))
             #rgb_loss += torch.square(torch.log(rb.beta)) / 2
-            rgb_loss += 1e-2*(1-torch.exp(-rb.density_t.mean()))
+            rgb_loss += 1e-3*(1-torch.exp(-rb.density_t.mean()))
             empty = rb.alpha * torch.all(img_gts[..., :3]==0, 1, keepdim=True) + (1.-rb.alpha) * (1-1*torch.all(img_gts[..., :3]==0, 1, keepdim=True))*0.1
-            empty_useless = rb.alpha * torch.exp( -50*torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()
+            empty_useless = rb.alpha * torch.exp( -100*torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()
             d = 1-torch.exp(-(rb.density))#+rb.density_t
             entropy = (-d*torch.log(d+1e-7)-(1-d)*torch.log(1-d+1e-7)).mean()
-            #rgb_loss += 1e-4 * entropy
-            rgb_loss+= 0.001 * empty_useless
+            rgb_loss += 1e-3 * entropy
+            rgb_loss+= 1e-4 * empty_useless
             print(c.mean(), rb.density_t.mean(),torch.sigmoid(100*self.pipeline.nef.backgroud_color),torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True).mean())
             #rgb_loss += 0.01*empty
 
@@ -83,8 +85,11 @@ class Trainer(BaseTrainer):
         self.log_dict['total_loss'] += loss.item()
         
         self.scaler.scale(loss).backward()
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
+        self.grad_iter=(self.grad_iter+1)%update_every
+        if self.grad_iter==0:
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            self.optimizer.zero_grad()
         
     def log_cli(self):
         log_text = 'EPOCH {}/{}'.format(self.epoch, self.max_epochs)

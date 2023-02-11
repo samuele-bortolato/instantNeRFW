@@ -80,9 +80,9 @@ nerf =  Nef(grid=grid,
             #view_embedder='positional',
             #view_multires=2,
             hidden_dim = 128,
-            prune_density_decay=0.95,
+            prune_density_decay=0.90,
             prune_min_density = 1e-2,
-            steps_before_pruning=10,
+            steps_before_pruning=1,
             max_samples = 2**18,
             trainable_background = True,
             starting_density_bias = -2,
@@ -143,8 +143,8 @@ trainer = Trainer(pipeline=pipeline,
                                model_format='full',
                                mip=1
                            ),
-                           render_tb_every=-1,
-                           save_every=5,
+                           render_tb_every=10,
+                           save_every=10,
                            scene_state=scene_state,
                            trainer_mode='train',
                            using_wandb=False)
@@ -154,7 +154,7 @@ torch.cuda.empty_cache()
 #is_gui_mode = os.environ.get('WISP_HEADLESS') != '1'
 if is_gui_mode: # is_gui_mode:
     scene_state.renderer.device = trainer.device  # Use same device for trainer and app renderer
-    app = DemoApp(wisp_state=scene_state, background_task=trainer.iterate, trainer=trainer, window_name="SIGGRAPH 2022 Demo") #trainer.iterate
+    app = DemoApp(wisp_state=scene_state, background_task=trainer.iterate, trainer=trainer, window_name=exp_name) #trainer.iterate
     app.run()  # Interactive Mode runs here indefinitely
 else:
     trainer.train()  # Headless mode runs all training epochs, then logs and quits

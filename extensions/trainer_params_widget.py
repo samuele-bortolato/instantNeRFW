@@ -70,21 +70,21 @@ class Training(WidgetImgui):
             if changed and entropy_mult != new_entropy_mult:
                 self.trainer.entropy_mult = new_entropy_mult
                 
-        def _emptyUseless_mult():
-            emptyUseless_mult = self.trainer.emptyUseless_mult
+        def _empty_mult():
+            empty_mult = self.trainer.empty_mult
 
-            changed, new_emptyUseless_mult = imgui.core.slider_float("##emptyUseless_mult",
-                                                          value=emptyUseless_mult, min_value=0, max_value=1, format='%.3e', power=8)
-            if changed and emptyUseless_mult != new_emptyUseless_mult:
-                self.trainer.emptyUseless_mult = new_emptyUseless_mult
+            changed, new_empty_mult = imgui.core.slider_float("##empty_mult",
+                                                          value=empty_mult, min_value=0, max_value=1, format='%.3e', power=8)
+            if changed and empty_mult != new_empty_mult:
+                self.trainer.empty_mult = new_empty_mult
 
-        def _emptyUseless_sel():
-            emptyUseless_sel = self.trainer.emptyUseless_sel
+        def _empty_sel():
+            empty_sel = self.trainer.empty_sel
 
-            changed, new_emptyUseless_sel = imgui.core.slider_float("##emptyUseless_sel",
-                                                          value=emptyUseless_sel, min_value=1, max_value=100, power=3)
-            if changed and emptyUseless_sel != new_emptyUseless_sel:
-                self.trainer.emptyUseless_sel = new_emptyUseless_sel
+            changed, new_empty_sel = imgui.core.slider_float("##empty_sel",
+                                                          value=empty_sel, min_value=1, max_value=100, power=3)
+            if changed and empty_sel != new_empty_sel:
+                self.trainer.empty_sel = new_empty_sel
 
 
 
@@ -117,8 +117,8 @@ class Training(WidgetImgui):
         properties = {
             'Transient loss mult': _trans_mult,
             'Entropy loss mult': _entropy_mult,
-            'Empty loss mult': _emptyUseless_mult,
-            'Empty selectivity': _emptyUseless_sel,
+            'Empty loss mult': _empty_mult,
+            'Empty selectivity': _empty_sel,
             'Prune density':_prune_min_density,
             'Render radius': _rendering_radius,
             'Render treshold': _rendering_threshold,

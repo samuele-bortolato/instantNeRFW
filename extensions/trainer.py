@@ -24,7 +24,7 @@ class Trainer(BaseTrainer):
                  optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
                  exp_name=None, info=None, scene_state=None, extra_args=None,
                  render_tb_every=-1, save_every=-1, trainer_mode='validate', using_wandb=False, 
-                 trans_mult = 1e-4, entropy_mult = 1e-1, emptyUseless_mult = 1e-3, emptyUseless_sel = 50):
+                 trans_mult = 1e-4, entropy_mult = 1e-1, empty_mult = 1e-3, empty_selectivity = 50):
         super().__init__(pipeline, dataset, num_epochs, batch_size,
                  optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
                  exp_name, info, scene_state, extra_args,
@@ -32,8 +32,8 @@ class Trainer(BaseTrainer):
 
         self.trans_mult = trans_mult
         self.entropy_mult = entropy_mult
-        self.emptyUseless_mult = emptyUseless_mult
-        self.emptyUseless_sel = emptyUseless_sel
+        self.empty_mult = empty_mult
+        self.empty_sel = empty_selectivity
     
     def pre_step(self):
         """Override pre_step to support pruning.
@@ -48,14 +48,14 @@ class Trainer(BaseTrainer):
         """
         super().init_log_dict()
         self.log_dict['rgb_loss'] = 0.0
+        self.log_dict['trans_loss'] = 0.0
+        self.log_dict['entropy_loss'] = 0.0
+        self.log_dict['empty_loss'] = 0.0
 
     def step(self, data):
         """Implement the optimization over image-space loss.
         """
         update_every=4
-        if not hasattr(self, 'grad_iter'):
-            self.grad_iter=0
-            self.optimizer.zero_grad()
 
         # Map to device
         rays = data['rays'].to(self.device).squeeze(0)
@@ -77,34 +77,37 @@ class Trainer(BaseTrainer):
         with torch.cuda.amp.autocast():
             rb = self.pipeline(rays=rays, idx=idx, lod_idx=lod_idx, channels=["rgb"])
 
-            # RGB Loss 
-            #rgb_loss = F.mse_loss(rb.rgb, img_gts, reduction='none')
-            #rgb_loss = torch.abs(rb.rgb[..., :3] - img_gts[..., :3])     # <- Original
             l1=0.01
-            c = torch.square((rb.rgb[..., :3] - img_gts[..., :3])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach()))
-            rgb_loss = c #/ (2 * torch.square(rb.beta))
-            #rgb_loss += torch.square(torch.log(rb.beta)) / 2
-            #rgb_loss += 1e-3*(1-torch.exp(-rb.density_t.mean()))
-            rgb_loss -= self.trans_mult * (torch.log((1-rb.alpha_t)*(1-1e-5)))
-            #empty = rb.alpha * torch.all(img_gts[..., :3]==0, 1, keepdim=True) + (1.-rb.alpha) * (1-1*torch.all(img_gts[..., :3]==0, 1, keepdim=True))*0.1
-            empty_useless = rb.alpha * torch.exp( -self.emptyUseless_sel*torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()
-            d = 1-torch.exp(-(rb.density))#+rb.density_t
-            entropy = (-d*torch.log(d+1e-7)).sum()/len(rays)/self.pipeline.tracer.num_steps#-(1-d)*torch.log(1-d+1e-7)
-            rgb_loss += self.entropy_mult * entropy
-            rgb_loss+= self.emptyUseless_mult * empty_useless
-            #print(c.mean(), rb.density_t.mean(),torch.sigmoid(100*self.pipeline.nef.backgroud_color),torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True).mean())
-            #rgb_loss += 0.01*empty
-            print( f"{c.mean().item():.3e}".ljust(10), f"{rb.alpha_t.mean().item():.3e}".ljust(10), f"{entropy.mean().item():.3e}".ljust(10), f"{empty_useless.mean().item():.3e}".ljust(10))
+            rgb_loss = torch.square((rb.rgb[..., :3] - img_gts[..., :3])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach())).mean()
 
-            rgb_loss = rgb_loss.mean()
-            loss += self.extra_args["rgb_loss"] * rgb_loss
+            trans_loss = -torch.log((1-rb.alpha_t)*(1-1e-5)).mean()
+
+            d = 1-torch.exp(-(rb.density))
+            entropy_loss = (-d*torch.log(d+1e-7)).sum()/len(rays)/self.pipeline.tracer.num_steps # -(1-d)*torch.log(1-d+1e-7)
+
+            empty_loss = (rb.alpha * torch.exp( -self.empty_sel*torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()).mean()
+
+            loss += rgb_loss # self.extra_args["rgb_loss"] *
+            loss += self.trans_mult * trans_loss
+            loss += self.entropy_mult * entropy_loss
+            loss += self.empty_mult * empty_loss
+
             self.log_dict['rgb_loss'] += rgb_loss.item()
+            self.log_dict['trans_loss'] += trans_loss.item()
+            self.log_dict['entropy_loss'] += entropy_loss.item()
+            self.log_dict['empty_loss'] += empty_loss.item()
+
+        print(f" {self.iteration}/{self.iterations_per_epoch}  ".rjust(10),
+            f"rgb_loss: {self.log_dict['rgb_loss']/self.iteration:.3e}   ",
+            f"trans_loss: {self.log_dict['trans_loss']/self.iteration:.3e}   ",
+            f"entropy_loss: {self.log_dict['entropy_loss']/self.iteration:.3e}   ",
+            f"empty_loss: {self.log_dict['empty_loss']/self.iteration:.3e}   ", 
+            end="\r")
 
         self.log_dict['total_loss'] += loss.item()
         
         self.scaler.scale(loss).backward()
-        self.grad_iter=(self.grad_iter+1)%update_every
-        if self.grad_iter==0:
+        if self.iteration % update_every==0:
             self.scaler.step(self.optimizer)
             self.scaler.update()
             self.optimizer.zero_grad()

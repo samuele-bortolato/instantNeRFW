@@ -42,7 +42,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # NeRF is trained with a MultiviewDataset, which knows how to generate RGB rays from a set of images + cameras
 train_dataset = MyMultiviewDataset(
     dataset_path=dataset_path,
-    aabb_scale=2,
+    aabb_scale=3,
     #multiview_dataset_format='rtmv',
     multiview_dataset_format='standard',
     mip=0,
@@ -57,32 +57,36 @@ train_dataset = MyMultiviewDataset(
 grid = HashGrid.from_geometric(feature_dim=2,
                                num_lods=16,
                                multiscale_type='cat',
-                               codebook_bitwidth=18,
+                               codebook_bitwidth=20,
                                min_grid_res=16,
-                               max_grid_res=256,
-                               blas_level=6)
+                               max_grid_res=4096,
+                               blas_level=7)
 
-grid_t=[]
-for i in range(1):
-    grid_t.append(HashGrid.from_geometric(feature_dim=2,
-                                        num_lods=16,
-                                        multiscale_type='cat',
-                                        codebook_bitwidth=14,
-                                        min_grid_res=16,
-                                        max_grid_res=256,
-                                        blas_level=6).cuda())
+grid_t=HashGrid.from_geometric(feature_dim=2,
+                                num_lods=16,
+                                multiscale_type='cat',
+                                codebook_bitwidth=12,
+                                min_grid_res=16,
+                                max_grid_res=2048,
+                                blas_level=0).cuda()
+
 
 appearence_emb=torch.randn(len(train_dataset), 2, device='cuda')*0.01
 
 from wisp.models.nefs import NeuralRadianceField
-nerf =  Nef(grid=grid, 
+nerf =  Nef(grid=grid,
             grid_t=grid_t,
             appearence_embedding=appearence_emb,
-            view_embedder='positional',
-            view_multires=2,
+            #view_embedder='positional',
+            #view_multires=2,
             hidden_dim = 128,
             prune_density_decay=0.95,
-            prune_min_density=0.01*1024/np.sqrt(3)
+            prune_min_density = 1e-2,
+            steps_before_pruning=10,
+            max_samples = 2**18,
+            trainable_background = True,
+            starting_density_bias = -2,
+            render_radius = 0.5
             )
 
 tracer = Tracer(raymarch_type='ray', num_steps=1024)
@@ -101,18 +105,18 @@ else:
 scene_state = WispState()
 
 # TODO (operel): the trainer args really need to be simplified -_-
-lr = 0.001
+lr = 1e-3
 weight_decay = 0
-exp_name = 'siggraph_2022_demo'
+exp_name = 'NerfW for hand-held objects'
 trainer = Trainer(pipeline=pipeline,
                            dataset=train_dataset, #train_dataset
                            num_epochs=epochs,
                            batch_size=1,    # 1 image per batch
                            optim_cls=torch.optim.Adam,
                            lr=lr,
-                           weight_decay=0.0,     # Weight decay, applied only to decoder weights.
+                           weight_decay=1e-6,     # Weight decay, applied only to decoder weights.
                            grid_lr_weight=100.0, # Relative learning rate weighting applied only for the grid parameters
-                           optim_params=dict(lr=lr, weight_decay=weight_decay),
+                           optim_params=dict(lr=lr, weight_decay=weight_decay, betas=(0.9, 0.99), eps=1e-15),
                            log_dir='_results/logs/runs/',
                            device=device,
                            exp_name=exp_name,
@@ -125,7 +129,7 @@ trainer = Trainer(pipeline=pipeline,
                                only_last=False,
                                resample=False,
                                resample_every=-1,
-                               prune_every=-1,
+                               prune_every=len(train_dataset),#
                                random_lod=False,
                                rgb_loss=1.0,
                                camera_origin=[-2.8, 2.8, -2.8],

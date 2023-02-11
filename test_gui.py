@@ -154,7 +154,7 @@ torch.cuda.empty_cache()
 #is_gui_mode = os.environ.get('WISP_HEADLESS') != '1'
 if is_gui_mode: # is_gui_mode:
     scene_state.renderer.device = trainer.device  # Use same device for trainer and app renderer
-    app = DemoApp(wisp_state=scene_state, background_task=trainer.iterate, window_name="SIGGRAPH 2022 Demo") #trainer.iterate
+    app = DemoApp(wisp_state=scene_state, background_task=trainer.iterate, trainer=trainer, window_name="SIGGRAPH 2022 Demo") #trainer.iterate
     app.run()  # Interactive Mode runs here indefinitely
 else:
     trainer.train()  # Headless mode runs all training epochs, then logs and quits

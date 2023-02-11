@@ -19,6 +19,21 @@ import numpy as np
 from PIL import Image
 
 class Trainer(BaseTrainer):
+
+    def __init__(self, pipeline, dataset, num_epochs, batch_size,
+                 optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
+                 exp_name=None, info=None, scene_state=None, extra_args=None,
+                 render_tb_every=-1, save_every=-1, trainer_mode='validate', using_wandb=False, 
+                 trans_mult = 1e-4, entropy_mult = 1e-1, emptyUseless_mult = 1e-3, emptyUseless_sel = 50):
+        super().__init__(pipeline, dataset, num_epochs, batch_size,
+                 optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
+                 exp_name, info, scene_state, extra_args,
+                 render_tb_every, save_every, trainer_mode, using_wandb)
+
+        self.trans_mult = trans_mult
+        self.entropy_mult = entropy_mult
+        self.emptyUseless_mult = emptyUseless_mult
+        self.emptyUseless_sel = emptyUseless_sel
     
     def pre_step(self):
         """Override pre_step to support pruning.
@@ -70,16 +85,16 @@ class Trainer(BaseTrainer):
             rgb_loss = c #/ (2 * torch.square(rb.beta))
             #rgb_loss += torch.square(torch.log(rb.beta)) / 2
             #rgb_loss += 1e-3*(1-torch.exp(-rb.density_t.mean()))
-            rgb_loss -= 3e-4* (torch.log((1-rb.alpha_t)*(1-1e-5)))
+            rgb_loss -= self.trans_mult * (torch.log((1-rb.alpha_t)*(1-1e-5)))
             #empty = rb.alpha * torch.all(img_gts[..., :3]==0, 1, keepdim=True) + (1.-rb.alpha) * (1-1*torch.all(img_gts[..., :3]==0, 1, keepdim=True))*0.1
-            empty_useless = rb.alpha * torch.exp( -50*torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()
+            empty_useless = rb.alpha * torch.exp( -self.emptyUseless_sel*torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()
             d = 1-torch.exp(-(rb.density))#+rb.density_t
             entropy = (-d*torch.log(d+1e-7)).sum()/len(rays)/self.pipeline.tracer.num_steps#-(1-d)*torch.log(1-d+1e-7)
-            rgb_loss += 1e-1 * entropy
-            rgb_loss+= 1e-3 * empty_useless
+            rgb_loss += self.entropy_mult * entropy
+            rgb_loss+= self.emptyUseless_mult * empty_useless
             #print(c.mean(), rb.density_t.mean(),torch.sigmoid(100*self.pipeline.nef.backgroud_color),torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True).mean())
             #rgb_loss += 0.01*empty
-            print(c.mean(), rb.alpha_t.mean(), entropy.mean(), empty_useless.mean())
+            print( f"{c.mean().item():.3e}".ljust(10), f"{rb.alpha_t.mean().item():.3e}".ljust(10), f"{entropy.mean().item():.3e}".ljust(10), f"{empty_useless.mean().item():.3e}".ljust(10))
 
             rgb_loss = rgb_loss.mean()
             loss += self.extra_args["rgb_loss"] * rgb_loss

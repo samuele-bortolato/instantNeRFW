@@ -25,7 +25,7 @@ class Tracer(BaseTracer):
     This tracer class expects the neural field to expose a BLASGrid: a Bottom-Level-Acceleration-Structure Grid,
     i.e. a grid that inherits the BLASGrid class for both a feature structure and an occupancy acceleration structure).
     """
-    def __init__(self, raymarch_type='voxel', num_steps=128, step_size=1.0, bg_color='white'):
+    def __init__(self, raymarch_type='voxel', num_steps=128, step_size=1.0, bg_color='white', rendering_threshold_density = 0.01):
         """Set the default trace() arguments.
 
         Args:
@@ -50,6 +50,7 @@ class Tracer(BaseTracer):
         self.num_steps = num_steps
         self.step_size = step_size
         self.bg_color = bg_color
+        self.rendering_threshold_density = rendering_threshold_density
 
     def get_supported_channels(self):
         """Returns the set of channel names this tracer may output.
@@ -195,6 +196,9 @@ class Tracer(BaseTracer):
         num_samples = samples.shape[0]
 
         color, density = nef(coords=samples, ray_d=hit_ray_d, idx = idx, lod_idx=lod_idx, channels=["rgb", "density"])
+
+        if idx is None:
+            density = density * (density >= self.rendering_threshold_density)
         
         density = density.reshape(num_samples, 1)    # Protect against squeezed return shape
         del ridx

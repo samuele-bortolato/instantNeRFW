@@ -157,7 +157,7 @@ class Nef(BaseNeuralField):
         self.max_samples = max_samples
 
         self.backgroud_color=torch.nn.parameter.Parameter(torch.ones(3)*0.01, requires_grad=trainable_background)
-        self.radius = render_radius
+        self.render_radius = render_radius**2 # store it already squared
 
         torch.cuda.empty_cache()
 
@@ -333,7 +333,7 @@ class Nef(BaseNeuralField):
             original_shape=batch_coords.shape
         
             if idx is None:
-                mask = torch.sum(torch.square(batch_coords), 1) < self.radius
+                mask = torch.sum(torch.square(batch_coords), 1) < self.render_radius
             else:
                 mask=torch.ones(original_shape[0],dtype=torch.bool)
             batch_coords = batch_coords[mask]

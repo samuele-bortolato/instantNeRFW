@@ -15,6 +15,16 @@ from wisp.renderer.gui import WidgetImgui
 from wisp.renderer.gizmos import Gizmo
 from wisp.renderer.core.api import request_redraw
 
+import imgui
+import torch
+from wisp.renderer.core import RendererCore
+from typing import Optional, Type, Callable, Dict, List, Tuple
+from glumpy import app, gloo, gl, ext
+from wisp.renderer.core.control import CameraControlMode, WispKey, WispMouseButton
+from wisp.renderer.gizmos import Gizmo, WorldGrid, AxisPainter, PrimitivesPainter
+
+from extensions.trainer_params_widget import WidgetTrainingArguments
+
 
 class DemoApp(WispApp):
     """ A demo app for optimizing an object with a latent channel.
@@ -26,14 +36,76 @@ class DemoApp(WispApp):
     def __init__(self,
                  wisp_state: WispState,
                  background_task: Callable[[], None] = None,
-                 window_name: str = 'SIGGRAPH 2022 Demo'):
-        super().__init__(wisp_state, window_name)
+                 trainer = None,
+                 window_name: str = 'NerfW for hand-held objects'):
+        
+        # Initialize app state instance
+        self.wisp_state: WispState = wisp_state
+        self.init_wisp_state(wisp_state)
+
+        # Create main app window & initialize GL context
+        # glumpy with a specialized glfw backend takes care of that (backend is imgui integration aware)
+        window = self._create_window(self.width, self.height, window_name)
+        self.register_io_mappings()
+
+        # Initialize gui, assumes the window is managed by glumpy with glfw
+        imgui.create_context()
+        self._is_imgui_focused = False
+        self._is_imgui_hovered = False
+        self._is_reposition_imgui_menu = True
+        self.canvas_dirty = False
+        self.redraw_every_frame = False
+
+        # Tell torch to initialize the CUDA context
+        torch.cuda.init()
+
+        # Initialize applicative renderer, which independently paints images for the main canvas
+        render_core = RendererCore(self.wisp_state)
+
+        self.window = window                    # App window with a GL context & oversees event callbacks
+        self.render_core = render_core          # Internal renderer, responsible for painting over canvas
+        self.render_clock = app.clock.Clock()
+        self.render_clock.tick()
+        self.interactions_clock = app.clock.Clock()
+        self.interactions_clock.tick()
+        self._was_interacting_prev_frame = False
+
+        # The initialization of these fields is deferred util "on_resize" is first prompted.
+        # There we generate a simple billboard GL program (normally with a shared CUDA resource)
+        # Canvas content will be blitted onto it
+        self.canvas_program: Optional[gloo.Program] = None   # GL program used to paint a single billboard
+        self.cugl_rgb_handle = None                              # CUDA buffer, as a shared resource with OpenGL
+        self.cugl_depth_handle = None
+
+        try:
+            # WSL does not support CUDA-OpenGL interoperability, fallback to device2host2device copy instead
+            from platform import uname
+            is_wsl = 'microsoft-standard' in uname().release
+            self.blitdevice2device = not is_wsl
+        except Exception:
+            # By default rendering results copy directly from torch/cuda mem to OpenGL Texture
+            self.blitdevice2device = True
+
+        self.user_mode: CameraControlMode = None    # Camera controller object (first person, trackball or turntable)
+
+        self.trainer = trainer
+
+        self.widgets = self.create_widgets()        # Create gui widgets for this app
+        self.gizmos = self.create_gizmos()          # Create canvas widgets for this app
+        self.prim_painter = PrimitivesPainter()
+
+        self.register_event_handlers()
+        self.change_user_mode(self.default_user_mode())
+
+        self.redraw()   # Refresh RendererCore
+
 
         # Tell the renderer to invoke a background task (i.e. a training iteration function)
         # in conjunction to rendering.
         # Power users: The background tasks are constantly invoked by glumpy within the on_idle() event.
         # The actual rendering will occur in-between these calls, invoked by the on_draw() event (which checks if
         # it's time to render the scene again).
+
         self.register_background_task(background_task)
 
         # from wisp.models.nefs import FunnyNeuralField
@@ -104,6 +176,7 @@ class DemoApp(WispApp):
         from wisp.renderer.gui import WidgetInteractiveVisualizerProperties, WidgetGPUStats, WidgetSceneGraph, WidgetOptimization
         widgets = [WidgetGPUStats(),            # Current FPS, memory occupancy, GPU Model
                    WidgetOptimization(),        # Live status of optimization, epochs / iterations count, loss curve
+                   WidgetTrainingArguments(self.trainer, self.render_core),
                    WidgetInteractiveVisualizerProperties(),  # Canvas dims, user camera controller & definitions
                    WidgetSceneGraph()]          # A scene graph tree with the objects hierarchy and their properties
 

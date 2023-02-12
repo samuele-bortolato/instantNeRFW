@@ -32,10 +32,10 @@ class Nef(BaseNeuralField):
                  # embedder args
                  pos_embedder: str = 'none',
                  view_embedder: str = 'none',
-                 pos_t_embedder: str = 'none',
                  pos_multires: int = 10,
                  view_multires: int = 4,
                  position_input: bool = False,
+                 direction_input: bool = True,
                  # decoder args
                  activation_type: str = 'relu',
                  layer_type: str = 'none',
@@ -111,7 +111,7 @@ class Nef(BaseNeuralField):
         self.pos_embedder, self.pos_embed_dim = self.init_embedder(pos_embedder, pos_multires,
                                                                    include_input=position_input)
         self.view_embedder, self.view_embed_dim = self.init_embedder(view_embedder, view_multires,
-                                                                     include_input=True)
+                                                                     include_input=direction_input)
         
 
         # Init Decoder

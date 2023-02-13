@@ -24,7 +24,7 @@ class Trainer(BaseTrainer):
                  optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
                  exp_name=None, info=None, scene_state=None, extra_args=None,
                  render_tb_every=-1, save_every=-1, trainer_mode='validate', using_wandb=False, 
-                 trans_mult = 1e-4, entropy_mult = 1e-1, empty_mult = 1e-3, empty_selectivity = 50):
+                 trans_mult = 1e-4, entropy_mult = 1e-1, empty_mult = 1e-3, empty_selectivity = 50, batch_accumulate = 1):
         super().__init__(pipeline, dataset, num_epochs, batch_size,
                  optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
                  exp_name, info, scene_state, extra_args,
@@ -34,6 +34,7 @@ class Trainer(BaseTrainer):
         self.entropy_mult = entropy_mult
         self.empty_mult = empty_mult
         self.empty_sel = empty_selectivity
+        self.batch_accumulate = batch_accumulate
     
     def pre_step(self):
         """Override pre_step to support pruning.
@@ -55,7 +56,6 @@ class Trainer(BaseTrainer):
     def step(self, data):
         """Implement the optimization over image-space loss.
         """
-        update_every=4
 
         # Map to device
         rays = data['rays'].to(self.device).squeeze(0)
@@ -107,7 +107,7 @@ class Trainer(BaseTrainer):
         self.log_dict['total_loss'] += loss.item()
         
         self.scaler.scale(loss).backward()
-        if self.iteration % update_every==0:
+        if self.iteration % self.batch_accumulate == 0:
             self.scaler.step(self.optimizer)
             self.scaler.update()
             self.optimizer.zero_grad()

@@ -27,12 +27,8 @@ from extensions.tracer import Tracer
 from extensions.nef import Nef
 from extensions.gui import DemoApp
 
-#dataset_path='C:/Users/Sam/Downloads/V8/V8_'
-dataset_path='datasets/greendino/'
-model_path=None
-epochs=1000
 
-is_gui_mode=True
+from utils.default_params import *
 
 
 
@@ -42,32 +38,27 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # NeRF is trained with a MultiviewDataset, which knows how to generate RGB rays from a set of images + cameras
 train_dataset = MyMultiviewDataset(
     dataset_path=dataset_path,
-    aabb_scale=3,
-    #multiview_dataset_format='rtmv',
-    multiview_dataset_format='standard',
-    mip=0,
-    bg_color='black',
-    dataset_num_workers=-1,
-    # transform=SampleRays(
-    #     num_samples=2048
-    # )
-    num_samples=2048
+    aabb_scale=aabb_scale,
+    multiview_dataset_format=multiview_dataset_format,
+    mip=mip,
+    dataset_num_workers=dataset_num_workers,
+    num_samples=num_samples
 )
 
-grid = HashGrid.from_geometric(feature_dim=2,
-                               num_lods=16,
-                               multiscale_type='cat',
-                               codebook_bitwidth=20,
-                               min_grid_res=16,
-                               max_grid_res=4096,
-                               blas_level=7)
+grid = HashGrid.from_geometric(feature_dim=feature_dim,
+                               num_lods=num_lods,
+                               multiscale_type=multiscale_type,
+                               codebook_bitwidth=codebook_bitwidth,
+                               min_grid_res=min_grid_res,
+                               max_grid_res=max_grid_res,
+                               blas_level=blas_level)
 
-grid_t=HashGrid.from_geometric(feature_dim=2,
-                                num_lods=16,
-                                multiscale_type='cat',
-                                codebook_bitwidth=12,
-                                min_grid_res=16,
-                                max_grid_res=2048,
+grid_t=HashGrid.from_geometric(feature_dim=t_feature_dim,
+                                num_lods=t_num_lods,
+                                multiscale_type=t_multiscale_type,
+                                codebook_bitwidth=t_codebook_bitwidth,
+                                min_grid_res=t_min_grid_res,
+                                max_grid_res=t_max_grid_res,
                                 blas_level=0).cuda()
 
 
@@ -77,20 +68,20 @@ from wisp.models.nefs import NeuralRadianceField
 nerf =  Nef(grid=grid,
             grid_t=grid_t,
             appearence_embedding=appearence_emb,
-            #view_embedder='positional',
-            #view_multires=2,
-            direction_input=False,
-            hidden_dim = 128,
-            prune_density_decay=0.90,
-            prune_min_density = 1e-2,
-            steps_before_pruning=1,
-            max_samples = 2**18,
-            trainable_background = True,
-            starting_density_bias = -2,
-            render_radius = 0.5
+            view_embedder=view_embedder,
+            view_multires=view_multires,
+            direction_input=direction_input,
+            hidden_dim = hidden_dim,
+            prune_density_decay=prune_density_decay,
+            prune_min_density = prune_min_density,
+            steps_before_pruning=steps_before_pruning,
+            max_samples = max_samples,
+            trainable_background = trainable_background,
+            starting_density_bias = starting_density_bias,
+            render_radius = render_radius
             )
 
-tracer = Tracer(raymarch_type='ray', num_steps=512)
+tracer = Tracer(raymarch_type='ray', num_steps=num_steps)
 #tracer = PackedRFTracer(raymarch_type='ray', num_steps=1024)
 
 from wisp.renderer.core.api.renderers_factory import register_neural_field_type
@@ -106,53 +97,52 @@ else:
 scene_state = WispState()
 
 # TODO (operel): the trainer args really need to be simplified -_-
-lr = 1e-3
-weight_decay = 0
-exp_name = 'NerfW for hand-held objects'
+
 trainer = Trainer(pipeline=pipeline,
-                           dataset=train_dataset, #train_dataset
-                           num_epochs=epochs,
-                           batch_size=1,    # 1 image per batch
-                           optim_cls=torch.optim.Adam,
-                           lr=lr,
-                           weight_decay=1e-6,     # Weight decay, applied only to decoder weights.
-                           grid_lr_weight=100.0, # Relative learning rate weighting applied only for the grid parameters
-                           optim_params=dict(lr=lr, weight_decay=weight_decay, betas=(0.9, 0.99), eps=1e-15),
-                           log_dir='_results/logs/runs/',
-                           device=device,
-                           exp_name=exp_name,
-                           info='',
-                           extra_args=dict(  # TODO (operel): these should be optional..
-                               dataset_path=dataset_path,
-                               dataloader_num_workers=0,
-                               num_lods=4,
-                               grow_every=-1,
-                               only_last=False,
-                               resample=False,
-                               resample_every=-1,
-                               prune_every=len(train_dataset),#
-                               random_lod=False,
-                               rgb_loss=1.0,
-                               camera_origin=[1.25, 1.25, 1.25],
-                               camera_lookat=[0, 0, 0],
-                               camera_fov=30,
-                               camera_clamp=[0, 10],
-                               render_batch=4000,
-                               bg_color='black',
-                               valid_every=-1,
-                               save_as_new=False,
-                               model_format='full',
-                               mip=1
-                           ),
-                           render_tb_every=10,
-                           save_every=10,
-                           scene_state=scene_state,
-                           trainer_mode='train',
-                           using_wandb=False,
-                           trans_mult = 1e-3, 
-                           entropy_mult = 1e-1, 
-                           empty_mult = 1e-2, 
-                           empty_selectivity = 100)
+                dataset=train_dataset, #train_dataset
+                num_epochs=epochs,
+                batch_size=batch_size,           # 1 image per batch
+                batch_accumulate=batch_accumulate,
+                optim_cls=torch.optim.Adam,
+                lr=lr,
+                weight_decay=weight_decay,     # Weight decay, applied only to decoder weights.
+                grid_lr_weight=100.0, # Relative learning rate weighting applied only for the grid parameters
+                optim_params=dict(lr=lr, weight_decay=weight_decay, betas=(0.9, 0.99), eps=1e-15),
+                log_dir=log_dir,
+                device=device,
+                exp_name=exp_name,
+                info='',
+                extra_args=dict(  # TODO (operel): these should be optional..
+                    dataset_path=dataset_path,
+                    dataloader_num_workers=0,
+                    num_lods=4,
+                    grow_every=-1,
+                    only_last=False,
+                    resample=False,
+                    resample_every=-1,
+                    prune_every=len(train_dataset),#
+                    random_lod=False,
+                    rgb_loss=1.0,
+                    camera_origin=camera_origin,
+                    camera_lookat=camera_lookat,
+                    camera_fov=camera_fov,
+                    camera_clamp=[0, 10],
+                    render_batch = render_batch,
+                    bg_color='black',
+                    valid_every=-1,
+                    save_as_new=False,
+                    model_format='full',
+                    mip=1
+                ),
+                render_tb_every=render_tb_every,
+                save_every=save_every,
+                scene_state=scene_state,
+                trainer_mode='train',
+                using_wandb=using_wandb,
+                trans_mult = trans_mult, 
+                entropy_mult = entropy_mult, 
+                empty_mult = empty_mult, 
+                empty_selectivity = empty_selectivity)
 
 torch.cuda.empty_cache()
 

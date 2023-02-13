@@ -58,4 +58,6 @@ python setup.py develop
 
 ```
 
-
+### Note: High VRAM usage
+If you are trying to run the project on a low memory GPU we recommend to also modify a file of the library kaolin-wisp to use less memory
+The file to be modified can be found in wisp/accelstructs/octree_as.py, the modified version is [here](octree_as.py).

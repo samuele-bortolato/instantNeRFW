@@ -7,7 +7,7 @@ The project was developed using the library [kaolin-wisp](https://github.com/NVI
 
 ## Installation
 
-For the installation folloe the instructions [here](resources\installation.md)
+For the installation folloe the instructions [here](\resources\installation.md)
 
 ## Differences from NeRFW
 

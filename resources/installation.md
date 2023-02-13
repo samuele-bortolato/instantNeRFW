@@ -11,7 +11,7 @@ pip install --upgrade pip
 ```
 ### 2. Clone repository
 ```bash
-git clone git@github.com:NVIDIAGameWorks/kaolin-wisp.git
+git clone https://github.com/NVIDIAGameWorks/kaolin-wisp.git
 cd kaolin-wisp
 git checkout 351a04a7daadbf57d4fd96e9f74ff77ffe809e19
 ```

@@ -3,6 +3,8 @@
 The libraries used are constantly being updated and a month after the beginning of the project our code is already not fully compatible with the latest version, so we have to compile from source.
 Following the instructions to install kaolin-wisp
 
+### Prerequisites
+- Cuda 11.3
 ### 1. Create an anaconda environment
 ```bash
 conda create -n wisp python=3.9

@@ -79,6 +79,7 @@ nerf =  Nef(grid=grid,
             appearence_embedding=appearence_emb,
             #view_embedder='positional',
             #view_multires=2,
+            direction_input=False,
             hidden_dim = 128,
             prune_density_decay=0.90,
             prune_min_density = 1e-2,
@@ -89,7 +90,7 @@ nerf =  Nef(grid=grid,
             render_radius = 0.5
             )
 
-tracer = Tracer(raymarch_type='ray', num_steps=1024)
+tracer = Tracer(raymarch_type='ray', num_steps=512)
 #tracer = PackedRFTracer(raymarch_type='ray', num_steps=1024)
 
 from wisp.renderer.core.api.renderers_factory import register_neural_field_type
@@ -132,7 +133,7 @@ trainer = Trainer(pipeline=pipeline,
                                prune_every=len(train_dataset),#
                                random_lod=False,
                                rgb_loss=1.0,
-                               camera_origin=[-2.8, 2.8, -2.8],
+                               camera_origin=[1.25, 1.25, 1.25],
                                camera_lookat=[0, 0, 0],
                                camera_fov=30,
                                camera_clamp=[0, 10],
@@ -147,7 +148,11 @@ trainer = Trainer(pipeline=pipeline,
                            save_every=10,
                            scene_state=scene_state,
                            trainer_mode='train',
-                           using_wandb=False)
+                           using_wandb=False,
+                           trans_mult = 1e-3, 
+                           entropy_mult = 1e-1, 
+                           empty_mult = 1e-2, 
+                           empty_selectivity = 100)
 
 torch.cuda.empty_cache()
 

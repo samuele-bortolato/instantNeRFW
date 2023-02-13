@@ -1,3 +1,5 @@
 call conda activate wisp
-tensorboard --logdir _results/logs/runs
-cmd /k
+START tensorboard --logdir _results/logs/runs
+timeout 3
+start "" http://localhost:6006/
+

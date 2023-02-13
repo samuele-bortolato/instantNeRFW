@@ -52,11 +52,6 @@ pip install -r requirements.txt
 ```bash
 pip install -r requirements_app.txt
 ```
-other requirements that were not in the text
-```bash
-pip install PyEXR
-pip install lpips
-```
 ### 6. Install the library
 ```bash
 python setup.py develop

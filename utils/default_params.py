@@ -3,9 +3,9 @@ import torch
 is_gui_mode=True
 
 ## Dataset
-dataset_path='datasets/greendino/'
+dataset_path='datasets/brandenburg_gate/'
 aabb_scale=3
-mip=0
+mip=3
 multiview_dataset_format='standard'
 dataset_num_workers=-1
 num_samples=2048
@@ -53,6 +53,7 @@ model_path=None
 ## Tracer
 num_steps=512
 trainable_background = True
+starting_background = None
 
 ## Rendering
 rendering_threshold_density = 0.01

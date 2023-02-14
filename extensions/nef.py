@@ -49,6 +49,7 @@ class Nef(BaseNeuralField):
                  # others
                  max_samples = 2**20,
                  trainable_background = True,
+                 starting_background = None,
                  starting_density_bias = -1,
                  render_radius = 1
                  ):
@@ -156,7 +157,10 @@ class Nef(BaseNeuralField):
 
         self.max_samples = max_samples
 
-        self.backgroud_color=torch.nn.parameter.Parameter(torch.ones(3)*0.01, requires_grad=trainable_background)
+        if starting_background is None:
+            self.backgroud_color=torch.nn.parameter.Parameter(torch.ones(3)*0.01, requires_grad=trainable_background)
+        else:
+            self.backgroud_color=torch.nn.parameter.Parameter(torch.logit(torch.tensor(starting_background),eps=1e-8),requires_grad=trainable_background)
         self.render_radius = render_radius**2 # store it already squared
 
         torch.cuda.empty_cache()

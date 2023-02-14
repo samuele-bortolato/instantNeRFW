@@ -301,8 +301,8 @@ if __name__ == "__main__":
 				#name = str(PurePosixPath(Path(IMAGE_FOLDER, elems[9])))
 				# why is this requireing a relitive path while using ^
 				image_rel = os.path.relpath(IMAGE_FOLDER)
-				name = str(f"./{image_rel}/{'_'.join(elems[9:])}")
-				b = sharpness(name)
+				name = str(f"{'_'.join(elems[9:])}")
+				b = sharpness(f"./{image_rel}/"+name)
 				print(name, "sharpness=",b)
 				image_id = int(elems[0])
 				qvec = np.array(tuple(map(float, elems[1:5])))
@@ -319,7 +319,7 @@ if __name__ == "__main__":
 
 					up += c2w[0:3,1]
 
-				frame = {"file_path":name,"sharpness":b,"transform_matrix": c2w}
+				frame = {"file_path":f"./images/"+name,"sharpness":b,"transform_matrix": c2w}
 				out["frames"].append(frame)
 	nframes = len(out["frames"])
 
@@ -374,6 +374,6 @@ if __name__ == "__main__":
 	for f in out["frames"]:
 		f["transform_matrix"] = f["transform_matrix"].tolist()
 	print(nframes,"frames")
-	print(f"writing {OUT_PATH}")
-	with open(OUT_PATH, "w") as outfile:
+	print(f"writing {OUT_PATH}transforms.json")
+	with open(OUT_PATH+"transforms.json", "w") as outfile:
 		json.dump(out, outfile, indent=2)

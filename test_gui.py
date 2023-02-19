@@ -30,7 +30,20 @@ from extensions.gui import DemoApp
 
 from utils.default_params import *
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--config_path", help="Configuration file path.")
+args = parser.parse_args()
 
+if args.config_path is not None:
+    try:
+        exec('from ' + args.config_path + ' import *')
+    except Exception as e:
+        raise
+else:
+    try:
+        exec('from launch_params import *')
+    except Exception as e:
+        raise
 
 default_log_setup(level=logging.INFO)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -62,7 +75,7 @@ grid_t=HashGrid.from_geometric(feature_dim=t_feature_dim,
                                 blas_level=0).cuda()
 
 
-appearence_emb=torch.randn(len(train_dataset), 2, device='cuda')*0.01
+appearence_emb=torch.randn(len(train_dataset), appearence_emb_dim, device='cuda')*0.01
 
 from wisp.models.nefs import NeuralRadianceField
 nerf =  Nef(grid=grid,

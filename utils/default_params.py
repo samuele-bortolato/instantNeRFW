@@ -2,8 +2,11 @@ import torch
 
 is_gui_mode=True
 
+## Load saved model (parameters of Grids and NeF have to match)
+model_path=None
+
 ## Dataset
-dataset_path='datasets/brandenburg_gate/'
+dataset_path='datasets/lego/'
 aabb_scale=3
 mip=3
 multiview_dataset_format='standard'
@@ -47,8 +50,7 @@ steps_before_pruning = 1
 max_samples = 2**18 # size of the samples batch
 starting_density_bias = -2
 
-## Load saved model (parameters of Grids and NeF have to match)
-model_path=None
+appearence_emb_dim = 5
 
 ## Tracer
 num_steps=512
@@ -67,9 +69,10 @@ batch_accumulate = 4
 lr = 1e-3
 weight_decay=1e-6      # Weight decay, applied only to decoder weights.
 grid_lr_weight = 100.0 # Relative learning rate weighting applied only for the grid parameters
-trans_mult = 1e-3 
-entropy_mult = 1e-1 
-empty_mult = 3e-3 
+
+trans_mult = 1e-4 
+entropy_mult = 0 
+empty_mult = 0
 empty_selectivity = 50
 
 # logs

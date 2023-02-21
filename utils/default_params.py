@@ -31,11 +31,11 @@ t_max_grid_res=2048
 
 ## Neural Field
 pos_embedder= 'none'
-view_embedder= 'none'
+view_embedder= 'positional'
 pos_multires= 10
 view_multires= 2
 position_input=False
-direction_input= False
+direction_input= True
 # decoder args
 activation_type = 'relu'
 layer_type = 'none'
@@ -67,7 +67,7 @@ epochs = 1000
 batch_size = 1 # in images
 batch_accumulate = 4
 lr = 1e-3
-weight_decay=1e-6      # Weight decay, applied only to decoder weights.
+weight_decay=0      # Weight decay, applied only to decoder weights.
 grid_lr_weight = 100.0 # Relative learning rate weighting applied only for the grid parameters
 
 trans_mult = 1e-4 

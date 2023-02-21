@@ -28,7 +28,7 @@ from extensions.nef import Nef
 from extensions.gui import DemoApp
 
 #dataset_path='C:/Users/Sam/Downloads/V8/V8_'
-dataset_path='datasets/greendino/'
+dataset_path='datasets/lego/'
 model_path=None
 epochs=1000
 
@@ -42,7 +42,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # NeRF is trained with a MultiviewDataset, which knows how to generate RGB rays from a set of images + cameras
 train_dataset = MyMultiviewDataset(
     dataset_path=dataset_path,
-    aabb_scale=2,
+    aabb_scale=3,
     #multiview_dataset_format='rtmv',
     multiview_dataset_format='standard',
     mip=0,
@@ -57,19 +57,19 @@ train_dataset = MyMultiviewDataset(
 grid = HashGrid.from_geometric(feature_dim=2,
                                num_lods=16,
                                multiscale_type='cat',
-                               codebook_bitwidth=18,
+                               codebook_bitwidth=20,
                                min_grid_res=16,
-                               max_grid_res=256,
-                               blas_level=6)
+                               max_grid_res=4096,
+                               blas_level=7)
 
 grid_t=[]
 for i in range(1):
     grid_t.append(HashGrid.from_geometric(feature_dim=2,
                                         num_lods=16,
                                         multiscale_type='cat',
-                                        codebook_bitwidth=14,
+                                        codebook_bitwidth=12,
                                         min_grid_res=16,
-                                        max_grid_res=256,
+                                        max_grid_res=2048,
                                         blas_level=6).cuda())
 
 appearence_emb=torch.randn(len(train_dataset), 2, device='cuda')*0.01
@@ -85,7 +85,7 @@ nerf =  Nef(grid=grid,
             prune_min_density=0.01*1024/np.sqrt(3)
             )
 
-tracer = Tracer(raymarch_type='ray', num_steps=1024)
+tracer = Tracer(raymarch_type='ray', num_steps=512)
 #tracer = PackedRFTracer(raymarch_type='ray', num_steps=1024)
 
 from wisp.renderer.core.api.renderers_factory import register_neural_field_type
@@ -139,8 +139,8 @@ trainer = Trainer(pipeline=pipeline,
                                model_format='full',
                                mip=1
                            ),
-                           render_tb_every=-1,
-                           save_every=5,
+                           render_tb_every=10,
+                           save_every=10,
                            scene_state=scene_state,
                            trainer_mode='train',
                            using_wandb=False)

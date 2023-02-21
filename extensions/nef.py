@@ -121,7 +121,7 @@ class Nef(BaseNeuralField):
                                        num_layers=num_layers,
                                        hidden_dim=hidden_dim,
                                        skip=[])
-        self.decoder_density.lout.bias.data[0] = 0.1 
+        self.decoder_density.lout.bias.data[0] = -2
         
         self.decoder_color = BasicDecoder(input_dim=self.color_net_input_dim(),
                                      output_dim=3,
@@ -147,7 +147,7 @@ class Nef(BaseNeuralField):
         self.prune_density_decay = prune_density_decay
         self.prune_min_density = prune_min_density
 
-        self.backgroud_color=torch.nn.parameter.Parameter(torch.ones(3)*0.01)
+        self.backgroud_color=torch.nn.parameter.Parameter(-10*torch.ones(3), requires_grad=False)
 
         torch.cuda.empty_cache()
 
@@ -306,7 +306,7 @@ class Nef(BaseNeuralField):
 
         original_shape=coords.shape
        
-        threshold = 0.5
+        threshold = 5
         if lod_idx is not None:
             mask = torch.sum(torch.square(coords), 1) < threshold
         else:
@@ -341,7 +341,7 @@ class Nef(BaseNeuralField):
             # Density is [particles / meter], so need to be multiplied by distance
             # density ~ (batch, 1)
             density = torch.zeros(original_shape[0], 1, device = density_feats.device, dtype=density_feats.dtype)
-            density[mask] = torch.relu(density_feats[...,0:1])
+            density[mask] = torch.nn.functional.softplus(density_feats[...,0:1]).to(density.dtype)
 
             if require_color:
 

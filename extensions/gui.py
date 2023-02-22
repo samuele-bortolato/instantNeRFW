@@ -37,7 +37,8 @@ class DemoApp(WispApp):
                  wisp_state: WispState,
                  background_task: Callable[[], None] = None,
                  trainer = None,
-                 window_name: str = 'NerfW for hand-held objects'):
+                 window_name: str = 'NerfW for hand-held objects',
+                 plot_grid=True):
         
         # Initialize app state instance
         self.wisp_state: WispState = wisp_state
@@ -90,8 +91,8 @@ class DemoApp(WispApp):
 
         self.trainer = trainer
 
-        self.widgets = self.create_widgets()        # Create gui widgets for this app
-        self.gizmos = self.create_gizmos()          # Create canvas widgets for this app
+        self.widgets = self.create_widgets()                            # Create gui widgets for this app
+        self.gizmos = self.create_gizmos() if plot_grid else {}         # Create canvas widgets for this app
         self.prim_painter = PrimitivesPainter()
 
         self.register_event_handlers()

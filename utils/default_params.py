@@ -84,3 +84,4 @@ save_every=10
 using_wandb=False
 log_dir = '_results/logs/runs/'
 exp_name = 'NerfW for hand-held objects'
+plot_grid=True

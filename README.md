@@ -1,4 +1,4 @@
-# instantNeRFW for Hand Held object Reconstruction
+# instantNeRFW for hand-held object reconstruction
 
 This project fuses [NeRF in the Wild](https://nerf-w.github.io/) with [instant NeRF](https://nvlabs.github.io/instant-ngp/) to speed up the generation of NeRFs with occlusions. 
 The goal is to be able to reconstruct hand held objects without the hands or the background.
@@ -10,7 +10,7 @@ The project was developed using the library [kaolin-wisp](https://github.com/NVI
 
 For the installation follow the instructions [here](/resources/installation.md)
 
-## Differences from NeRFW
+## Implementation details
 
 This work takes builds on the work of NeRF in the Wild to create NeRFs able to handle occlusions, but we made multiple changes in order to speed up the training and rendering. 
 
@@ -29,7 +29,7 @@ In orderd to aleviate this problem we introduced two regularizers:
 - entropy regularizer
 - empty background regularizer
 
-For further details see the technical report.
+For further details see the [technical report](/resources/report.pdf).
 
 ## Computing the positions of the cameras
 
@@ -99,6 +99,8 @@ The model tends to put more fog in places that are not between the object and th
 Finally since most of the unwanted fog usually has density lower thant the object we want to recreate we also set a slider to select the minimum density to be rendered, discarding all the samples with lower density.
 
 <img src="resources/gui.jpg" width="60%"/>
+
+Work under the NVIDIA Source Code License
 
 
 

@@ -1,9 +1,10 @@
-# instantNeRFW
+# instantNeRFW for Hand Held object Reconstruction
 
 This project fuses [NeRF in the Wild](https://nerf-w.github.io/) with [instant NeRF](https://nvlabs.github.io/instant-ngp/) to speed up the generation of NeRFs with occlusions. 
 The goal is to be able to reconstruct hand held objects without the hands or the background.
 The project was developed using the library [kaolin-wisp](https://github.com/NVIDIAGameWorks/kaolin-wisp) from nvidia.
 
+ <img src="resources/green_2_f.jpg" width="39.3%"><img src="resources/yellow_l.jpg" width="50%"/> 
 
 ## Installation
 
@@ -28,7 +29,7 @@ In orderd to aleviate this problem we introduced two regularizers:
 - entropy regularizer
 - empty background regularizer
 
-For further details see the technical paper
+For further details see the technical report.
 
 ## Computing the positions of the cameras
 
@@ -39,11 +40,10 @@ To compute the positions of the cameras we used colmap.
 1. Place the images in a single folder
 2. Open colmap, File > New project, create a new database (place it somewhere) and select the image folder
 3. Processing > Feature Extraction, eventually select the mask path folder (masks need to have the same name of the images + _.png_, e.g. _1.jpg_ and _1.jpg.png_)
-4. Processing > Feature Matching, multiple models off
-5. Reconstruction > Reconstruction options, multiple models off, decrease min_num_matches if you have a small dataset or it struggle to match
-6. Reconstruction > Start Reconstruction
-7. Extras > Undistort
-8. File > Export model as text
+4. Processing > Feature Matching
+5. Reconstruction > Start Reconstruction
+6. Extras > Undistort
+7. File > Export model as text
 
 Then we have to convert the camera informations to the format accepted by wisp.
 
@@ -81,7 +81,7 @@ The only exception is when the hands are in the same position in too many images
 
 The real problem is the matching of the background. When rotating an object in front of a background the colors of the background match so much in nearly all the images that they start to appear as a fog around the object. The backgorund matches so much that if we decrease the penalty for using the transient the model choses to put the object in the transient and model the static scene as a nearly uniform fog.
 
-
+<img src="resources/fog.jpg" width="40%"/>
 
 Removing the background using a mask could solve the issue, but that requires a pretty precise mask, otherwise it will still make a kind of aura around the object.
 
@@ -91,7 +91,6 @@ To further push the model to not make a fog around the object we introduced two 
 - **Entropy loss**: a loss on the density of the static scene, that pushes every point of the space to either be occupied (density 1) or be empty (density 0). It was loosely inspired by [InfoNeRF](https://arxiv.org/abs/2112.15399)
 - **Empty background loss**: a loss on the alpha (cumulative density) of the ray, that pushes the ray to be transparent (have density 0) if the target color is very close to the background color. The selectivity factor can be tuned depending on how similar the color of the object is compared to the background.
 
-<img src="resources/fog.jpg" width="40%"/>
 
 The tuning of these regularizer losses can be tricky: a high entropy loss can significanly slow down the training making it more likely to get stuck in a bad local minima; a high empty loss can instead confuse part of the object as background creating holes in the reconstruction. To help tune these parameters we added stliders to the GUI in order to be able to modify them while the model is training.
 
@@ -99,10 +98,7 @@ The model tends to put more fog in places that are not between the object and th
 
 Finally since most of the unwanted fog usually has density lower thant the object we want to recreate we also set a slider to select the minimum density to be rendered, discarding all the samples with lower density.
 
-If the dataset doesn't have many images removing the dependence from the viewing direction (forcing a point to have the same color from all viewing directions) helps stabilize the training and removes artifacts, at the expense of loosing fidelity. 
-The reflections are then modelled by the model as part of the image appearence embedding.
-
-
+<img src="resources/gui.jpg" width="60%"/>
 
 
 

@@ -54,15 +54,12 @@ class MyDataset(torch.utils.data.Dataset):
 
 class LoadData(MultiviewDataset):
 
-    def __init__(self,):
-        pass
-
-    def load(self, dataset_path: str, 
+    def __init__(self, dataset_path: str, 
                 split: str=None, 
                 bg_color: str='black', 
                 mip: int = 0,
                 dataset_num_workers: int = -1):
-
+        
         self.split = split
         self.dataset_num_workers = dataset_num_workers
         self.mip = mip
@@ -73,6 +70,8 @@ class LoadData(MultiviewDataset):
         self.dataset_path = dataset_path
         self._transform_file = self._validate_and_find_transform()
 
+
+    def load(self):
         if self.dataset_num_workers > 0:
             return self.load_multiprocess()
         else:

@@ -50,8 +50,8 @@ default_log_setup(level=logging.INFO)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 from extensions.dataset import DatasetLoader, MyDataset, NeRFSyntheticDataset
-loader = DatasetLoader(dataset_path, mip=4, dataset_num_workers=dataset_num_workers)
-data = loader.load()
+loader = DatasetLoader()
+data = loader.load(dataset_path, mip=mip, dataset_num_workers=dataset_num_workers)
 # train_dataset = NeRFSyntheticDataset(dataset_path, 
 #                                    mip=4, 
 #                                    dataset_num_workers=dataset_num_workers,
@@ -169,7 +169,7 @@ trainer = Trainer(pipeline=pipeline,
                     save_as_new=False,
                     model_format='full',
                     mip=1,
-                    profile=True
+                    profile=False
                 ),
                 render_tb_every=render_tb_every,
                 save_every=save_every,
@@ -184,7 +184,7 @@ trainer = Trainer(pipeline=pipeline,
 torch.cuda.empty_cache()
 
 #is_gui_mode = os.environ.get('WISP_HEADLESS') != '1'
-if True: # is_gui_mode:
+if is_gui_mode: # is_gui_mode:
     scene_state.renderer.device = trainer.device  # Use same device for trainer and app renderer
     app = DemoApp(wisp_state=scene_state, background_task=trainer.iterate, trainer=trainer, window_name=exp_name, plot_grid=plot_grid) #trainer.iterate
     app.run()  # Interactive Mode runs here indefinitely

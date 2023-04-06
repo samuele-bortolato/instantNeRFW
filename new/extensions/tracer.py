@@ -197,8 +197,6 @@ class Tracer(BaseTracer):
         boundary = raymarch_results.boundary
         depths = raymarch_results.depth_samples
 
-        print(rays.shape,samples.shape)
-
         # Get the indices of the ray tensor which correspond to hits
         ridx_hit = ridx[spc_render.mark_pack_boundaries(ridx.int())]
         # Compute the color and density for each ray and their samples

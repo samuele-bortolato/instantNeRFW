@@ -13,10 +13,14 @@ from wisp.trainers import BaseTrainer, log_metric_to_wandb, log_images_to_wandb
 from wisp.ops.image import write_png, write_exr
 from wisp.ops.image.metrics import psnr, lpips, ssim
 from wisp.core import Rays, RenderBuffer
+from wisp.datasets import WispDataset, default_collate
 
 import wandb
 import numpy as np
 from PIL import Image
+
+from torch.profiler import profile, record_function, ProfilerActivity
+from torch.utils.data import DataLoader
 
 class Trainer(BaseTrainer):
 
@@ -24,7 +28,7 @@ class Trainer(BaseTrainer):
                  optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
                  exp_name=None, info=None, scene_state=None, extra_args=None, validation_dataset = None,
                  render_tb_every=-1, save_every=-1, trainer_mode='validate', using_wandb=False, 
-                 trans_mult = 1e-4, entropy_mult = 1e-1, empty_mult = 1e-3, empty_selectivity = 50, batch_accumulate = 1):
+                 trans_mult = 1e-4, entropy_mult = 1e-1, empty_mult = 1e-3, empty_selectivity = 50, batch_accumulate = 1, profile=False):
                  
         super().__init__(pipeline, dataset, num_epochs, batch_size,
                  optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
@@ -37,6 +41,33 @@ class Trainer(BaseTrainer):
         self.empty_sel = empty_selectivity
         self.batch_accumulate = batch_accumulate
     
+    def init_dataloader(self):
+        self.train_data_loader = DataLoader(self.train_dataset,
+                                            batch_size=self.batch_size,
+                                            collate_fn=default_collate,
+                                            shuffle=True, pin_memory=False,
+                                            num_workers=self.extra_args['dataloader_num_workers'])
+        self.iterations_per_epoch = len(self.train_data_loader)
+
+    def train(self):
+        """
+        Override this if some very specific training procedure is needed.
+        """
+        if profile:
+            # pip install --upgrade torch-tb-profiler
+            with torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                                        record_shapes=True,
+                                        on_trace_ready=torch.profiler.tensorboard_trace_handler(os.path.join(self.log_dir, f'trace'))) as prof:
+                #with torch.autograd.profiler.emit_nvtx(enabled=self.extra_args["profile"]):
+                self.is_optimization_running = True
+                while self.is_optimization_running:
+                    self.iterate()
+            print(prof.key_averages(group_by_stack_n=10).table(sort_by='self_cpu_time_total', row_limit=10))
+        else:
+            self.is_optimization_running = True
+            while self.is_optimization_running:
+                self.iterate()
+
     def pre_step(self):
         """Override pre_step to support pruning.
         """
@@ -60,10 +91,17 @@ class Trainer(BaseTrainer):
 
         # Map to device
         
-        rgb = data['rgb'].reshape(-1,3).cuda()
-        pos_x = data['pos_x'].reshape(-1).cuda()
-        pos_y = data['pos_y'].reshape(-1).cuda()
-        idx = data['idx'].reshape(-1).cuda()
+        rgb, pos_x, pos_y, idx = data
+
+        rgb=rgb.reshape(-1,3)
+        pos_x=pos_x.reshape(-1)
+        pos_y=pos_y.reshape(-1)
+        idx=idx.reshape(-1)
+
+        # rgb = data['rgb'].reshape(-1,3).cuda()
+        # pos_x = data['pos_x'].reshape(-1).cuda()
+        # pos_y = data['pos_y'].reshape(-1).cuda()
+        # idx = data['idx'].reshape(-1).cuda()
         rays = None
 
         # rays = data['rays'].to(self.device).squeeze(0)

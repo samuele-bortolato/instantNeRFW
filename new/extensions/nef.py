@@ -165,6 +165,9 @@ class Nef(BaseNeuralField):
             self.backgroud_color=torch.nn.parameter.Parameter(torch.logit(torch.tensor(starting_background),eps=1e-8)/100,requires_grad=trainable_background)
         self.render_radius = render_radius**2 # store it already squared
 
+        self.offset=torch.zeros(1,3).cuda()
+        self.offset[:,0]=10
+
         torch.cuda.empty_cache()
 
     def init_embedder(self, embedder_type, frequencies=None, include_input=False):
@@ -297,10 +300,10 @@ class Nef(BaseNeuralField):
     def sample_t(self, ray_d=None, idx=None, lod_idx=None):
         if lod_idx is None:
             lod_idx = len(self.grid.active_lods) - 1
-
+        
         batch, _ = ray_d.shape
-
-        feats_t = self.grid_t.interpolate(  ray_d + idx[:,None]*torch.tensor([[10,0,0]], dtype=ray_d.dtype,device=ray_d.device), 
+        
+        feats_t = self.grid_t.interpolate(  ray_d + idx[:,None]*self.offset, 
                                             lod_idx).reshape(batch, -1)
 
         transient = self.decoder_transient(feats_t)

@@ -20,44 +20,31 @@ from wisp.datasets.batch import MultiviewBatch
 
 from kaolin.render.camera.intrinsics import CameraFOV
 
+import time
 
 
 class MyDataset(torch.utils.data.Dataset):
     def __init__(self, imgs, rays_per_sample):
-        self.imgs = imgs
-        self.rays_per_sample = rays_per_sample
-        self.hw = torch.tensor([imgs.shape[1],imgs.shape[2]])[:,None]
-        self.add1 = np.zeros((3,1))
-        self.add2 = np.zeros((3,1))
-        self.add12 = np.zeros((3,1))
 
-        self.add1[1] += 1
-        self.add2[2] += 1
-        self.add12[1:] += 1
+        self.num_imgs = imgs.shape[0]
+        self.points = imgs
+        self.rays_per_sample = rays_per_sample
+        self.h = imgs.shape[1]
+        self.w = imgs.shape[2]
 
     def __len__(self):
-        return len(self.imgs)
+        return self.num_imgs
     
     def __getitem__(self, idx):
 
-        idx = np.random.randint(0,len(self.imgs),(1,self.rays_per_sample))
-        pos = torch.rand((2,self.rays_per_sample))
+        img = self.points[idx].cuda()
+        pos = np.concatenate([np.random.randint(0,img.shape[0],(1,self.rays_per_sample)),
+                              np.random.randint(0,img.shape[0],(1,self.rays_per_sample))],0)
+        rgb = img[pos]
 
-        pos_s = pos * (self.hw-1)
-        pos_r = pos_s.frac()
-        pos_i = (pos_s-pos_r).numpy()
-
-        pos_idx=np.concatenate([idx,pos_i],0)
-
-        c0 = self.imgs[pos_idx]
-        # c1 = self.imgs[pos_idx+self.add1]
-        # c2 = self.imgs[pos_idx+self.add2]
-        # c3 = self.imgs[pos_idx+self.add12]
-
-        #pos_r=pos_r.T
-
+#        print("get_item", t1-t0,time.time()-t1)
         #rgb = c0*(1-pos_r[:,0:1])*(1-pos_r[:,1:]) + c1*(pos_r[:,0:1])*(1-pos_r[:,1:]) + c2*(1-pos_r[:,0:1])*(pos_r[:,1:]) + c3*(pos_r[:,0:1])*(pos_r[:,1:])
-        return {'rgb': c0.cuda(), 'pos_x':pos[1].cuda(), 'pos_y':pos[0].cuda(), 'idx':torch.tensor(idx).long().cuda()}
+        return rgb, torch.tensor(pos[1],device='cuda'), torch.tensor(pos[0],device='cuda'), torch.ones(self.rays_per_sample, dtype=torch.int64, device='cuda')*idx
 
 
 

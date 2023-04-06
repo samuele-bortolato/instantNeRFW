@@ -15,6 +15,7 @@ import numpy as np
 from wisp.app_utils import default_log_setup, args_to_log_format
 from wisp.framework import WispState
 from wisp.datasets import MultiviewDataset
+from wisp.datasets.formats.nerf_standard_dataset import NeRFSyntheticDataset
 from wisp.datasets.transforms import SampleRays
 from wisp.trainers import MultiviewTrainer
 from wisp.models.grids import OctreeGrid, HashGrid
@@ -43,22 +44,29 @@ else:
     try:
         exec('from launch_params import *')
     except Exception as e:
-        raise
+        pass
 
 default_log_setup(level=logging.INFO)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-from new.extensions.dataset1 import DatasetLoader, MyDataset
+from extensions.dataset import DatasetLoader, MyDataset, NeRFSyntheticDataset
 loader = DatasetLoader()
-data = loader.load(dataset_path, mip=mip, dataset_num_workers=dataset_num_workers)
+data = loader.load(dataset_path, mip=4, dataset_num_workers=dataset_num_workers)
 
-train_dataset = MyDataset(data['rgb'], rays_per_sample=2**12)
+# train_dataset = NeRFSyntheticDataset(dataset_path, 
+#                                    mip=4, 
+#                                    dataset_num_workers=dataset_num_workers,
+#                                    split='train',
+#                                    bg_color='black',
+#                                    num_samples=num_samples)
 
-from new.extensions.cameras import Cameras
+
+train_dataset = MyDataset(data['rgb'], rays_per_sample=num_samples)
+
+from extensions.cameras import Cameras
 
 cams = Cameras(**data['cameras'])
 
-print(data['cameras'].keys())
 
 #input()
 
@@ -94,6 +102,7 @@ appearence_emb=torch.randn(len(train_dataset), appearence_emb_dim, device='cuda'
 from wisp.models.nefs import NeuralRadianceField
 nerf =  Nef(grid=grid,
             grid_t=grid_t,
+            cameras=cams,
             appearence_embedding=appearence_emb,
             view_embedder=view_embedder,
             view_multires=view_multires,
@@ -129,7 +138,7 @@ scene_state = WispState()
 trainer = Trainer(pipeline=pipeline,
                 dataset=train_dataset, #train_dataset
                 num_epochs=epochs,
-                batch_size=batch_size,           # 1 image per batch
+                batch_size=1,           # 1 image per batch
                 batch_accumulate=batch_accumulate,
                 optim_cls=torch.optim.Adam,
                 lr=lr,
@@ -160,7 +169,8 @@ trainer = Trainer(pipeline=pipeline,
                     valid_every=-1,
                     save_as_new=False,
                     model_format='full',
-                    mip=1
+                    mip=1,
+                    profile=True
                 ),
                 render_tb_every=render_tb_every,
                 save_every=save_every,
@@ -175,7 +185,7 @@ trainer = Trainer(pipeline=pipeline,
 torch.cuda.empty_cache()
 
 #is_gui_mode = os.environ.get('WISP_HEADLESS') != '1'
-if is_gui_mode: # is_gui_mode:
+if True: # is_gui_mode:
     scene_state.renderer.device = trainer.device  # Use same device for trainer and app renderer
     app = DemoApp(wisp_state=scene_state, background_task=trainer.iterate, trainer=trainer, window_name=exp_name, plot_grid=plot_grid) #trainer.iterate
     app.run()  # Interactive Mode runs here indefinitely

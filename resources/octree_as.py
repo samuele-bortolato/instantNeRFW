@@ -6,12 +6,8 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION & AFFILIATES is strictly prohibited.
 
-
-# This is a modified version that uses less VRAM
-
-
 from __future__ import annotations
-from typing import List
+from typing import List, Tuple
 import torch
 import kaolin.ops.spc as spc_ops
 import kaolin.render.spc as spc_render
@@ -19,29 +15,40 @@ import wisp.ops.mesh as mesh_ops
 import wisp.ops.spc as wisp_spc_ops
 from wisp.accelstructs.base_as import BaseAS, ASQueryResults, ASRaytraceResults, ASRaymarchResults
 
-import numpy as np
+
+from kaolin import _C
+
 def quantized_to_octree(quantized_points, level):
 
-    if quantized_points.device!='cpu':
-        quantized_points=quantized_points.detach().cpu()
+    morton=_C.ops.spc.points_to_morton_cuda(quantized_points.contiguous().short().cuda())
 
-    pts=np.array(torch.unique(quantized_points,dim=0), dtype=np.uint8)[:,None]
-    bits = np.unpackbits(pts, 1)[...,[0,1,2]]
-    bits = bits.reshape(len(bits),-1)
-
-    m_idx=bits@np.power(2,np.arange(24)[ : :-1])
-
-    oct=np.zeros((2**level)**3, dtype=bool)
-    oct[m_idx]=1
+    oct=torch.zeros((2**level)**3, dtype=bool, device='cuda')
+    oct[morton]=1
     octree=[]
+    map=torch.pow(2,torch.arange(8, device='cuda').to(torch.uint8)[None])
 
     for _ in range(level):
-        octL = np.packbits(oct.reshape(-1,8),-1,bitorder='little')
+        octL = (oct.reshape(-1,8)*map).sum(1)
         oct = octL>0
         octree.insert(0,octL[oct])
 
-    return torch.tensor(np.concatenate(octree), dtype=torch.uint8, device='cuda')
+    return torch.tensor(torch.concat(octree), dtype=torch.uint8, device='cuda')
 
+
+@torch.jit.script
+def fast_filter_method(mask_idx: torch.Tensor, depth: torch.Tensor, deltas: torch.Tensor, samples: torch.Tensor,
+                       num_samples: int, num_rays: int, device: torch.device) -> \
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+
+
+    depth_samples = depth[mask_idx[:, 0], mask_idx[:, 1]][:, None]
+    deltas = deltas[mask_idx[:, 0], mask_idx[:, 1]].reshape(-1, 1)
+    samples = samples[mask_idx[:, 0], mask_idx[:, 1], :]
+
+    ridx = torch.arange(0, num_rays, device=device)
+    ridx = ridx[..., None].repeat(1, num_samples)[mask_idx[:, 0], mask_idx[:, 1]]
+
+    return depth_samples, deltas, samples, ridx
 
 
 class OctreeAS(BaseAS):
@@ -141,7 +148,6 @@ class OctreeAS(BaseAS):
             t+=(2**i)**3
         octree = torch.ones(t, dtype=torch.uint8, device='cuda')*255
         #octree = wisp_spc_ops.create_dense_octree(level)
-        
         return OctreeAS(octree)
 
     def query(self, coords, level=None, with_parents=False) -> ASQueryResults:
@@ -227,6 +233,7 @@ class OctreeAS(BaseAS):
         # boundary ~ (NUM_INTERSECTIONS * NUM_SAMPLES,)
         # (each intersected cell is sampled NUM_SAMPLES times)
         boundary = wisp_spc_ops.expand_pack_boundary(spc_render.mark_first_hit(ridx.int()), num_samples)
+        boundary = boundary.bool()
 
         # ridx ~ (NUM_INTERSECTIONS * NUM_SAMPLES,)
         # samples ~ (NUM_INTERSECTIONS * NUM_SAMPLES, 3)
@@ -280,30 +287,29 @@ class OctreeAS(BaseAS):
         # deltas, pidx, mask ~ (NUM_RAYS, NUM_SAMPLES)
         num_rays = rays.shape[0]
         samples = torch.addcmul(rays.origins[:, None], rays.dirs[:, None], depth[..., None])
-        deltas = depth.diff(dim=-1,
-                            prepend=(torch.zeros(rays.origins.shape[0], 1, device=depth.device) + rays.dist_min))
         query_results = self.query(samples.reshape(num_rays * num_samples, 3), level=level)
         pidx = query_results.pidx
         pidx = pidx.reshape(num_rays, num_samples)
         mask = pidx > -1
+        non_masked_idx = torch.nonzero(mask)
+        
+        deltas = depth.diff(dim=-1,
+                            prepend=(torch.zeros(rays.origins.shape[0], 1, device=depth.device) + rays.dist_min))
 
         # NUM_HIT_SAMPLES: number of samples sampled within occupied cells
         # NUM_HIT_SAMPLES can be 0!
         # depth_samples, deltas, ridx, boundary ~ (NUM_HIT_SAMPLES,)
         # samples ~ (NUM_HIT_SAMPLES, 3)
-        depth_samples = depth[mask][:, None]
-        num_hit_samples = depth_samples.shape[0]
-        deltas = deltas[mask].reshape(num_hit_samples, 1)
-        samples = samples[mask]
-        ridx = torch.arange(0, pidx.shape[0], device=pidx.device)
-        ridx = ridx[..., None].repeat(1, num_samples)[mask]
+
+        depth_samples, deltas, samples, ridx = fast_filter_method(non_masked_idx, depth, deltas, samples, num_samples, num_rays, pidx.device)
+
         boundary = spc_render.mark_pack_boundaries(ridx)
 
         return ASRaymarchResults(
-            ridx=ridx,
-            samples=samples,
-            depth_samples=depth_samples,
-            deltas=deltas,
+            ridx=ridx.long(),
+            samples=samples.float(),
+            depth_samples=depth_samples.float(),
+            deltas=deltas.float(),
             boundary=boundary
         )
 
@@ -358,14 +364,6 @@ class OctreeAS(BaseAS):
     def occupancy(self) -> List[int]:
         """ Returns a list of length [LODs], where each element contains the number of cells occupied in that LOD """
         return self.pyramid[0, :-2].cpu().numpy().tolist()
-
-    def capacity(self) -> List[int]:
-        """ Returns a list of length [LODs], where each element contains the total cell capacity in that LOD """
-        return [8**lod for lod in range(self.max_level)]
-
-    def occupancy(self) -> List[int]:
-        """ Returns a list of length [LODs], where each element contains the number of cells occupied in that LOD """
-        return self.pyramid[0, :-2].cpu().numpy()
 
     def capacity(self) -> List[int]:
         """ Returns a list of length [LODs], where each element contains the total cell capacity in that LOD """

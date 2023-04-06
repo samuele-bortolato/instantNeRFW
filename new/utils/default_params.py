@@ -8,7 +8,7 @@ model_path=None
 ## Dataset
 dataset_path='datasets/lego/'
 aabb_scale=3
-mip=2
+mip=0
 multiview_dataset_format='standard'
 dataset_num_workers=-1
 num_samples=2048

@@ -50,9 +50,8 @@ default_log_setup(level=logging.INFO)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 from extensions.dataset import DatasetLoader, MyDataset, NeRFSyntheticDataset
-loader = DatasetLoader()
-data = loader.load(dataset_path, mip=4, dataset_num_workers=dataset_num_workers)
-
+loader = DatasetLoader(dataset_path, mip=4, dataset_num_workers=dataset_num_workers)
+data = loader.load()
 # train_dataset = NeRFSyntheticDataset(dataset_path, 
 #                                    mip=4, 
 #                                    dataset_num_workers=dataset_num_workers,

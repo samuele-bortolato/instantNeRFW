@@ -53,9 +53,10 @@ class Trainer(BaseTrainer):
         """
         Override this if some very specific training procedure is needed.
         """
-        if profile:
+        if self.extra_args['profile']:
             # pip install --upgrade torch-tb-profiler
             with torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                                        with_stack = True,
                                         record_shapes=True,
                                         on_trace_ready=torch.profiler.tensorboard_trace_handler(os.path.join(self.log_dir, f'trace'))) as prof:
                 #with torch.autograd.profiler.emit_nvtx(enabled=self.extra_args["profile"]):

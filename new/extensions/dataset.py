@@ -38,13 +38,13 @@ class MyDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
 
         img = self.points[idx].cuda()
-        pos = np.concatenate([np.random.randint(0,img.shape[0],(1,self.rays_per_sample)),
-                              np.random.randint(0,img.shape[0],(1,self.rays_per_sample))],0)
-        rgb = img[pos]
+        pos0 = torch.randint(0,img.shape[0],(self.rays_per_sample,),dtype=torch.int64, device='cuda')
+        pos1 = torch.randint(0,img.shape[1],(self.rays_per_sample,),dtype=torch.int64, device='cuda')
 
-#        print("get_item", t1-t0,time.time()-t1)
-        #rgb = c0*(1-pos_r[:,0:1])*(1-pos_r[:,1:]) + c1*(pos_r[:,0:1])*(1-pos_r[:,1:]) + c2*(1-pos_r[:,0:1])*(pos_r[:,1:]) + c3*(pos_r[:,0:1])*(pos_r[:,1:])
-        return rgb, torch.tensor(pos[1],device='cuda'), torch.tensor(pos[0],device='cuda'), torch.ones(self.rays_per_sample, dtype=torch.int64, device='cuda')*idx
+        return (img[pos0,pos1], 
+                pos1.type(torch.float32), 
+                pos0.type(torch.float32), 
+                torch.empty(self.rays_per_sample, dtype=torch.int64, device='cuda').fill_(idx))
 
 
 

@@ -28,12 +28,8 @@ class Cameras(torch.nn.Module):
         #cam_ids have to by torch tensor of type long
         ray_orig = self.poses[ cam_ids, :3, -1]
 
-        #normalize coordinates
-        pixel_x = 2 * ( (pos_x - self.cx) / self.width) 
-        pixel_y = 2 * ( (pos_y + self.cy / self.height)) - 2
-
         ray_dir = torch.stack((  (pos_x - self.cx) / self.fx,
-                                -(pos_y - self.cy) / self.fy, #(-(pos_y - self.cy)+self.height) / self.fy, ??
+                                -(pos_y - self.cy) / self.fy, #(-(pos_y + self.cy)+self.height) / self.fy, ??
                                 -torch.ones_like(pos_x)), dim=-1)
         
         rotation_matrix = self.poses[ cam_ids, :3, :3]

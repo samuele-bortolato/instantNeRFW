@@ -1,6 +1,6 @@
 import torch
 
-is_gui_mode=True
+is_gui_mode=False
 
 ## Load saved model (parameters of Grids and NeF have to match)
 model_path=None

@@ -26,7 +26,6 @@ from wisp.tracers import PackedRFTracer
 from extensions.trainer import Trainer
 from extensions.tracer import Tracer
 from extensions.nef import Nef
-from extensions.gui import DemoApp
 
 
 from utils.default_params import *
@@ -185,6 +184,7 @@ torch.cuda.empty_cache()
 
 #is_gui_mode = os.environ.get('WISP_HEADLESS') != '1'
 if is_gui_mode: # is_gui_mode:
+    from extensions.gui import DemoApp
     scene_state.renderer.device = trainer.device  # Use same device for trainer and app renderer
     app = DemoApp(wisp_state=scene_state, background_task=trainer.iterate, trainer=trainer, window_name=exp_name, plot_grid=plot_grid) #trainer.iterate
     app.run()  # Interactive Mode runs here indefinitely

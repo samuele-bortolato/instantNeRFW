@@ -59,7 +59,7 @@ starting_background = None
 
 ## Rendering
 rendering_threshold_density = 0.01
-render_radius = 0.125
+render_radius = 1.25
 render_batch = 4000
 
 ## Training

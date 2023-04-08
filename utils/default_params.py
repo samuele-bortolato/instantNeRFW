@@ -49,6 +49,7 @@ steps_before_pruning = 1
 # others
 max_samples = 2**18 # size of the samples batch
 starting_density_bias = -2
+starting_density = 2e-2 # I was annoyed by the error in vscode, useless in the old version
 
 appearence_emb_dim = 5
 

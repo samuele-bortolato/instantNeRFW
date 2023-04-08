@@ -53,7 +53,7 @@ class Nef(BaseNeuralField):
                  max_samples = 2**20,
                  trainable_background = True,
                  starting_background = None,
-                 starting_density_bias = -1,
+                 starting_density = 5e-2,
                  render_radius = 1
                  ):
         """
@@ -108,6 +108,8 @@ class Nef(BaseNeuralField):
         self.grid = grid
         self.grid_t = grid_t
         self.grid.occupancy=torch.ones_like(self.grid.occupancy)*prune_min_density/prune_density_decay
+        res = 2**self.grid.blas_level
+        self.grid.occupancy=self.grid.occupancy.reshape((res,res,res))
         self.appearence_embedding = appearence_embedding
         self.appearence_feat = appearence_embedding.shape[1]
         self.cameras=cameras
@@ -133,6 +135,8 @@ class Nef(BaseNeuralField):
                                        num_layers=num_layers,
                                        hidden_dim=hidden_dim,
                                        skip=[])
+        starting_density=torch.tensor(starting_density)
+        starting_density_bias = starting_density + torch.log(-torch.expm1(-starting_density))
         self.decoder_density.lout.bias.data[0] = starting_density_bias
         
         self.decoder_color = BasicDecoder(input_dim=self.color_net_input_dim(),
@@ -190,42 +194,38 @@ class Nef(BaseNeuralField):
         
         if self.grid is not None:
             if isinstance(self.grid, HashGrid):
-                density_decay = self.prune_density_decay
-                min_density = self.prune_min_density
-
-                self.grid.occupancy = self.grid.occupancy.cuda()
-                self.grid.occupancy = self.grid.occupancy * density_decay
-                #points = self.grid.dense_points.cuda()
-                max_level, pyramids, exsum = spc.scan_octrees(self.grid.blas.octree, torch.tensor(len(self.grid.blas.octree))[None])
-                points = spc.generate_points(self.grid.blas.octree, pyramids, exsum)[pyramids[0,1,max_level]:]
-                res = 2**self.grid.blas_level
-                sample_points = torch.rand(points.shape[0], 3, device=points.device)
-                sample_points = points.float() + sample_points*1.4 - 0.2
-                samples = sample_points / res
-                samples = samples * 2.0 - 1.0
-                sample_views = torch.FloatTensor(sample_unif_sphere(samples.shape[0])).to(points.device)
                 with torch.no_grad():
+                    density_decay = self.prune_density_decay
+                    min_density = self.prune_min_density
+
+                    self.grid.occupancy = self.grid.occupancy.cuda()
+                    self.grid.occupancy = self.grid.occupancy * density_decay
+                    #points = self.grid.dense_points.cuda()
+                    max_level, pyramids, exsum = spc.scan_octrees(self.grid.blas.octree, torch.tensor(len(self.grid.blas.octree))[None])
+                    points = spc.generate_points(self.grid.blas.octree, pyramids, exsum)[pyramids[0,1,max_level]:]
+                    res = 2**self.grid.blas_level
+                    sample_points = torch.rand(points.shape[0], 3, device=points.device)
+                    sample_points = points.float() + sample_points*1.4 - 0.2
+                    samples = sample_points / res
+                    samples = samples * 2.0 - 1.0
+                    sample_views = torch.FloatTensor(sample_unif_sphere(samples.shape[0])).to(points.device)
                     density = self.forward(coords=samples, idx=0, ray_d=sample_views, channels="density")
-                sample_points=sample_points.floor_().clip(0,res-1).long()
-                self.grid.occupancy=self.grid.occupancy.reshape((res,res,res))
-                self.grid.occupancy[sample_points[:,0],sample_points[:,1],sample_points[:,2]] = torch.stack([density[:, 0], self.grid.occupancy[sample_points[:,0],sample_points[:,1],sample_points[:,2]]], -1).max(dim=-1)[0]
-
-                if self.steps_before_pruning > 0:
-                    self.steps_before_pruning -= 1
-                else:
-                    
-                    # self.grid.occupancy = self.grid.occupancy[mask]
-                    #_points = points[mask]
-                    _points = torch.nonzero(self.grid.occupancy > min_density)
-
-                    if _points.shape[0] == 0:
-                        return
-
-                    if hasattr(self.grid.blas.__class__, "from_quantized_points"):
-                        self.grid.blas = self.grid.blas.__class__.from_quantized_points(_points, self.grid.blas_level)
+                    sample_points=sample_points.floor_().clip(0,res-1).long()
+                    self.grid.occupancy[sample_points[:,0],sample_points[:,1],sample_points[:,2]] = torch.stack([density[:, 0], self.grid.occupancy[sample_points[:,0],sample_points[:,1],sample_points[:,2]]], -1).max(dim=-1)[0]
+                    if self.steps_before_pruning > 0:
+                        self.steps_before_pruning -= 1
                     else:
-                        raise Exception(f"The BLAS {self.grid.blas.__class__.__name__} does not support initialization " 
-                                        "from_quantized_points, which is required for pruning.")
+                        
+                        _points = torch.nonzero(self.grid.occupancy > min_density)
+
+                        if _points.shape[0] == 0:
+                            return
+
+                        if hasattr(self.grid.blas.__class__, "from_quantized_points"):
+                            self.grid.blas = self.grid.blas.__class__.from_quantized_points(_points, self.grid.blas_level)
+                        else:
+                            raise Exception(f"The BLAS {self.grid.blas.__class__.__name__} does not support initialization " 
+                                            "from_quantized_points, which is required for pruning.")
             else:
                 raise NotImplementedError(f'Pruning not implemented for grid type {self.grid}')
 

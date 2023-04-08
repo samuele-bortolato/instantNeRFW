@@ -48,7 +48,7 @@ prune_min_density= 1e-2
 steps_before_pruning = 1
 # others
 max_samples = 2**18 # size of the samples batch
-starting_density_bias = -2
+starting_density = 2e-2
 
 appearence_emb_dim = 5
 
@@ -59,7 +59,7 @@ starting_background = None
 
 ## Rendering
 rendering_threshold_density = 0.01
-render_radius = 0.7
+render_radius = 0.125
 render_batch = 4000
 
 ## Training

@@ -112,7 +112,7 @@ nerf =  Nef(grid=grid,
             max_samples = max_samples,
             trainable_background = trainable_background,
             starting_background=starting_background,
-            starting_density_bias = starting_density_bias,
+            starting_density = starting_density,
             render_radius = render_radius
             )
 

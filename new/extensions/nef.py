@@ -17,6 +17,8 @@ from wisp.models.activations import get_activation_class
 from wisp.models.decoders import BasicDecoder
 from wisp.models.grids import BLASGrid, HashGrid
 
+from kaolin.ops import spc
+
 class Nef(BaseNeuralField):
     """Model for encoding Neural Radiance Fields (Mildenhall et al. 2020), e.g., density and view dependent color.
     Different to the original NeRF paper, this implementation uses feature grids for a
@@ -193,24 +195,28 @@ class Nef(BaseNeuralField):
 
                 self.grid.occupancy = self.grid.occupancy.cuda()
                 self.grid.occupancy = self.grid.occupancy * density_decay
-                points = self.grid.dense_points.cuda()
-                res = 2.0**self.grid.blas_level
-                samples = torch.rand(points.shape[0], 3, device=points.device)
-                samples = points.float() + samples
-                samples = samples / res
+                #points = self.grid.dense_points.cuda()
+                max_level, pyramids, exsum = spc.scan_octrees(self.grid.blas.octree, torch.tensor(len(self.grid.blas.octree))[None])
+                points = spc.generate_points(self.grid.blas.octree, pyramids, exsum)[pyramids[0,1,max_level]:]
+                res = 2**self.grid.blas_level
+                sample_points = torch.rand(points.shape[0], 3, device=points.device)
+                sample_points = points.float() + sample_points*1.4 - 0.2
+                samples = sample_points / res
                 samples = samples * 2.0 - 1.0
                 sample_views = torch.FloatTensor(sample_unif_sphere(samples.shape[0])).to(points.device)
                 with torch.no_grad():
                     density = self.forward(coords=samples, idx=0, ray_d=sample_views, channels="density")
-                self.grid.occupancy = torch.stack([density[:, 0], self.grid.occupancy], -1).max(dim=-1)[0]
+                sample_points=sample_points.floor_().clip(0,res-1).long()
+                self.grid.occupancy=self.grid.occupancy.reshape((res,res,res))
+                self.grid.occupancy[sample_points[:,0],sample_points[:,1],sample_points[:,2]] = torch.stack([density[:, 0], self.grid.occupancy[sample_points[:,0],sample_points[:,1],sample_points[:,2]]], -1).max(dim=-1)[0]
 
                 if self.steps_before_pruning > 0:
                     self.steps_before_pruning -= 1
                 else:
-
-                    mask = self.grid.occupancy > min_density
-
-                    _points = points[mask]
+                    
+                    # self.grid.occupancy = self.grid.occupancy[mask]
+                    #_points = points[mask]
+                    _points = torch.nonzero(self.grid.occupancy > min_density)
 
                     if _points.shape[0] == 0:
                         return

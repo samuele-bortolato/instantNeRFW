@@ -58,7 +58,7 @@ class Trainer(BaseTrainer):
                 used_points = torch.concat([used_points,samples],0)
                 used_points = torch.unique(used_points,False,dim=0)
                     
-            nef.grid.blas = nef.grid.blas.__class__.from_quantized_points(used_points, nef.grid.blas_level)
+            nef.grid.blas = nef.grid.blas.__class__.from_quantized_points(used_points.short(), nef.grid.blas_level)
 
     def init_dataloader(self):
         self.train_data_loader = DataLoader(self.train_dataset,

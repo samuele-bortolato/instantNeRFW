@@ -222,7 +222,7 @@ class Nef(BaseNeuralField):
                             return
 
                         if hasattr(self.grid.blas.__class__, "from_quantized_points"):
-                            self.grid.blas = self.grid.blas.__class__.from_quantized_points(_points, self.grid.blas_level)
+                            self.grid.blas = self.grid.blas.__class__.from_quantized_points(_points.short(), self.grid.blas_level)
                         else:
                             raise Exception(f"The BLAS {self.grid.blas.__class__.__name__} does not support initialization " 
                                             "from_quantized_points, which is required for pruning.")

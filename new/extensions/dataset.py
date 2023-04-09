@@ -42,8 +42,8 @@ class MyDataset(torch.utils.data.Dataset):
         pos1 = torch.randint(0,img.shape[1],(self.rays_per_sample,),dtype=torch.int64, device='cuda')
 
         return (img[pos0,pos1], 
-                pos1.type(torch.float32), 
-                pos0.type(torch.float32), 
+                pos1.type(torch.float32)+0.5, 
+                pos0.type(torch.float32)+0.5, 
                 torch.empty(self.rays_per_sample, dtype=torch.int64, device='cuda').fill_(idx))
 
 

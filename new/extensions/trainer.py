@@ -40,7 +40,26 @@ class Trainer(BaseTrainer):
         self.empty_mult = empty_mult
         self.empty_sel = empty_selectivity
         self.batch_accumulate = batch_accumulate
-    
+        self.initial_prune()
+
+    def initial_prune(self):
+        with torch.no_grad():
+            nef = self.pipeline.nef
+            used_points=torch.empty((0,3)).cuda()
+            res = 2**nef.grid.blas_level
+            for c_idx in range(len(nef.cameras.poses)):
+                batch_size = self.train_dataset.rays_per_sample
+                rays = nef.cameras.get_n_rays_of_cam(c_idx, batch_size)
+                raymarch_results = nef.grid.raymarch(rays,
+                                                level=nef.grid.active_lods[nef.grid.num_lods - 1],
+                                                num_samples=self.pipeline.tracer.num_steps,
+                                                raymarch_type=self.pipeline.tracer.raymarch_type)
+                samples = ((raymarch_results.samples+1)*res/2).floor().clip(0,res-1)
+                used_points = torch.concat([used_points,samples],0)
+                used_points = torch.unique(used_points,False,dim=0)
+                    
+            nef.grid.blas = nef.grid.blas.__class__.from_quantized_points(used_points, nef.grid.blas_level)
+
     def init_dataloader(self):
         self.train_data_loader = DataLoader(self.train_dataset,
                                             batch_size=self.batch_size,

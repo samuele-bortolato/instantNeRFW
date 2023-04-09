@@ -1,5 +1,6 @@
 import torch
 from wisp.core import Rays
+from wisp.ops.raygen import generate_centered_pixel_coords
 
 class Cameras(torch.nn.Module):
 
@@ -40,3 +41,8 @@ class Cameras(torch.nn.Module):
         return Rays(origins=ray_orig, dirs=ray_dir, dist_min=self.near, dist_max=self.far)
 
 #        return {"origins":ray_orig, "dirs":ray_dir, "dist_min":self.near, "dist_max":self.far}
+
+    def get_n_rays_of_cam(self, cam_id, n=2**10):
+        pos_x = torch.randint(0,self.width,(n,),dtype=torch.float32, device='cuda') + 0.5
+        pos_y = torch.randint(0,self.width,(n,),dtype=torch.float32, device='cuda') + 0.5
+        return self.get_rays( torch.empty(len(pos_x), dtype=torch.int64, device='cuda').fill_(cam_id), pos_x , pos_y)

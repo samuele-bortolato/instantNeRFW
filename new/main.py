@@ -50,7 +50,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 from extensions.dataset import DatasetLoader, MyDataset, NeRFSyntheticDataset
 loader = DatasetLoader()
-data = loader.load(dataset_path, mip=mip, dataset_num_workers=dataset_num_workers)
+data = loader.load(dataset_path, mip=mip, with_mask=False, with_depth=False, dataset_num_workers=dataset_num_workers)
 # train_dataset = NeRFSyntheticDataset(dataset_path, 
 #                                    mip=4, 
 #                                    dataset_num_workers=dataset_num_workers,
@@ -58,8 +58,8 @@ data = loader.load(dataset_path, mip=mip, dataset_num_workers=dataset_num_worker
 #                                    bg_color='black',
 #                                    num_samples=num_samples)
 
-
-train_dataset = MyDataset(data['rgb'], rays_per_sample=num_samples)
+inp_data = torch.cat((data['rgb'], data['masks'], data['depths']), dim=-1)
+train_dataset = MyDataset(inp_data, rays_per_sample=num_samples)
 
 from extensions.cameras import Cameras
 

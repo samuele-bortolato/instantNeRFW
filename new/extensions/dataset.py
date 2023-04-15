@@ -59,12 +59,16 @@ class DatasetLoader():
     def load(self, dataset_path: str, 
                 split: str=None, 
                 bg_color: str='black', 
+                with_mask: bool=False,
+                with_depth: bool=False,
                 mip: int = 0,
                 dataset_num_workers: int = -1):
 
         self.split = split
         self.dataset_num_workers = dataset_num_workers
         self.mip = mip
+        self.with_mask = with_mask
+        self.with_depth = with_depth
         self.bg_color = bg_color
 
         self.coords = self.data = self.coords_center = self.coords_scale = None
@@ -127,7 +131,7 @@ class DatasetLoader():
     
 
     @staticmethod
-    def _load_single_entry(frame, root, mip=None):
+    def _load_single_entry(frame, root, mip=None, with_mask=False, with_depth=False):
         """ Loads a single image: takes a frame from the JSON to load image and associated poses from json.
         This is a helper function which also supports multiprocessing for the standard dataset.
 
@@ -140,8 +144,14 @@ class DatasetLoader():
             (dict): Dictionary of the image and pose.
         """
         fpath = os.path.join(root, frame['file_path'].replace("\\", "/"))
-
+        
         basename = os.path.basename(os.path.splitext(fpath)[0])
+        mask_path = os.path.join(root, 'masks', basename + '.jpg')
+        depth_path = os.path.join(root, 'depths', basename + '.jpg')
+
+        mask = None
+        depth = None
+        
         if os.path.splitext(fpath)[1] == "":
             # Assume PNG file if no extension exists... the NeRF synthetic data follows this convention.
             fpath += '.png'
@@ -152,8 +162,26 @@ class DatasetLoader():
             img = load_rgb(fpath)
             if mip is not None:
                 img = resize_mip(img, mip, interpolation=cv2.INTER_AREA)
+
+            # Load mask
+            if with_mask and os.path.exists(mask_path):
+                mask = load_rgb(mask_path)
+                if mip is not None:
+                    mask = resize_mip(mask, mip, interpolation=cv2.INTER_AREA)
+                mask = torch.FloatTensor(mask)
+
+            # Load depth map
+            if with_depth and os.path.exists(depth_path):
+                depth = load_rgb(depth_path)
+                if mip is not None:
+                    depth = resize_mip(depth, mip, interpolation=cv2.INTER_AREA)
+                depth = torch.FloatTensor(depth)
+
             return dict(basename=basename,
-                        img=torch.FloatTensor(img), pose=torch.FloatTensor(np.array(frame['transform_matrix'])))
+                        img=torch.FloatTensor(img), 
+                        pose=torch.FloatTensor(np.array(frame['transform_matrix'])), 
+                        mask=mask,
+                        depth=depth)
         else:
             # log.info(f"File name {fpath} doesn't exist. Ignoring.")
             return None
@@ -175,26 +203,54 @@ class DatasetLoader():
         imgs = []
         poses = []
         basenames = []
+        masks = None
+        depths = None
+
+        if self.with_mask:
+            masks = []
+        if self.with_depth:
+            depths = []
 
         for frame in tqdm(metadata['frames'], desc='loading data'):
-            _data = self._load_single_entry(frame, self.dataset_path, mip=self.mip)
+            _data = self._load_single_entry(frame, self.dataset_path, 
+                                            mip=self.mip, 
+                                            with_mask=self.with_mask, 
+                                            with_depth=self.with_depth)
             if _data is not None:
                 basenames.append(_data["basename"])
                 imgs.append(_data["img"])
                 poses.append(_data["pose"])
-
-        return self._collect_data_entries(metadata=metadata, basenames=basenames, imgs=imgs, poses=poses)
+                if _data["mask"] is not None:
+                    masks.append(_data["mask"])
+                if _data["depth"] is not None:
+                    depths.append(_data["depth"])
+                assert not(self.with_mask and _data["mask"] is None), f"Error in Dataset: mask of image {_data['basename']} is missing from the dataset."
+                assert not(self.with_depth and _data["depth"] is None), f"Error in Dataset: depth map of image {_data['basename']} is missing from the dataset."
+            
+        return self._collect_data_entries(metadata=metadata, 
+                                          basenames=basenames, 
+                                          imgs=imgs, 
+                                          poses=poses,
+                                          masks=masks,
+                                          depths=depths)
     
     @staticmethod
     def _parallel_load_standard_imgs(args):
         """ Internal function used by the multiprocessing loader: allocates a single entry task for a worker.
         """
         torch.set_num_threads(1)
-        result = DatasetLoader._load_single_entry(args['frame'], args['root'], mip=args['mip'])
+        result = DatasetLoader._load_single_entry(args['frame'], args['root'], 
+                                                  mip=args['mip'], 
+                                                  with_mask=args['with_mask'],
+                                                  with_depth=args['with_depth'])
         if result is None:
             return dict(basename=None, img=None, pose=None)
         else:
-            return dict(basename=result['basename'], img=result['img'], pose=result['pose'])
+            return dict(basename=result['basename'], 
+                        img=result['img'], 
+                        pose=result['pose'],
+                        masks=result['masks'],
+                        depths=result['depths'])
 
     def load_multiprocess(self):
         """Standard parsing function for loading nerf-synthetic files with multiple workers.
@@ -212,33 +268,48 @@ class DatasetLoader():
         imgs = []
         poses = []
         basenames = []
+        masks = None
+        depths = None
+
+        if self.with_mask:
+            masks = []
+        if self.with_depth:
+            depths = []
 
         p = Pool(self.dataset_num_workers)
         try:
-            mp_entries = [dict(frame=frame, root=self.dataset_path, mip=self.mip)
+            mp_entries = [dict(frame=frame, root=self.dataset_path, mip=self.mip, mask=self.mask)
                           for frame in metadata['frames']]
             iterator = p.imap(DatasetLoader._parallel_load_standard_imgs, mp_entries)
 
             for _ in tqdm(range(len(metadata['frames']))):
                 result = next(iterator)
-                basename = result['basename']
-                img = result['img']
-                pose = result['pose']
-                if basename is not None:
-                    basenames.append(basename)
-                if img is not None:
-                    imgs.append(img)
-                if pose is not None:
-                    poses.append(pose)
+                if result['basename'] is not None:
+                    basenames.append(result['basename'])
+                if result['img'] is not None:
+                    imgs.append(result['img'])
+                if result['pose'] is not None:
+                    poses.append(result['pose'])
+                if result['masks'] is not None:
+                    masks.append(result['masks'])
+                if result['depth'] is not None:
+                    depths.append(result['depth'])
+                assert not(self.with_mask and result['masks'] is None), f"Error in Dataset: mask of image {result['basename']} is missing from the dataset."
+                assert not(self.with_depth and result['depth'] is None), f"Error in Dataset: depth map of image {result['basename']} is missing from the dataset."
         finally:
             p.close()
             p.join()
 
-        return self._collect_data_entries(metadata=metadata, basenames=basenames, imgs=imgs, poses=poses)
+        return self._collect_data_entries(metadata=metadata, 
+                                          basenames=basenames, 
+                                          imgs=imgs, 
+                                          poses=poses,
+                                          masks=masks,
+                                          depths=depths)
     
 
 
-    def _collect_data_entries(self, metadata, basenames, imgs, poses) -> Dict[str, Union[torch.Tensor, Rays, Camera]]:
+    def _collect_data_entries(self, metadata, basenames, imgs, poses, masks, depths) -> Dict[str, Union[torch.Tensor, Rays, Camera]]:
         """ Internal function for aggregating the pre-loaded multi-views.
         This function will:
             1. Read the metadata & compute the intrinsic parameters of the camera view, (such as fov and focal length
@@ -268,8 +339,16 @@ class DatasetLoader():
         imgs = torch.stack(imgs)
         poses = torch.stack(poses)
 
-        h, w = imgs[0].shape[:2]
+        if masks is not None:
+            masks = torch.stack(masks)[..., None]
+        else:
+            masks = torch.ones_like(imgs)[:, :, :, :1]
+        if depths is not None:
+            depths = torch.stack(depths)[..., None]
+        else:
+            depths = torch.ones_like(imgs)[:, :, :, :1]
 
+        h, w = imgs[0].shape[:2]
 
         # compute scaling factors
         if 'x_fov' in metadata:
@@ -425,10 +504,11 @@ class DatasetLoader():
         # modify colors if they are transparent (png)
         rgbs = imgs[... ,:3]
         alpha = imgs[... ,3:4]
+
         if alpha.numel() == 0:
-            masks = torch.ones_like(rgbs[... ,0:1]).bool()
+            alpha_masks = torch.ones_like(rgbs[... ,0:1]).bool()
         else:
-            masks = (alpha > 0.5).bool()
+            alpha_masks = (alpha > 0.5).bool()
 
             if self.bg_color == 'black':
                 rgbs[... ,:3] -= ( 1 -alpha)
@@ -438,7 +518,9 @@ class DatasetLoader():
                 rgbs[... ,:3] += ( 1 -alpha)
                 rgbs = np.clip(rgbs, 0.0, 1.0)
 
-        return {"cameras":{"fx":fx, "fy":fy, "cx":x0, "cy":y0, "width": w, "height": h, "poses":poses}, "rgb":rgbs}
+        
+        return {"cameras":{"fx": fx, "fy": fy, "cx": x0, "cy": y0, "width": w, "height": h, "poses":poses}, 
+                "rgb": rgbs, "masks": masks, "depths": depths}
     
 
 

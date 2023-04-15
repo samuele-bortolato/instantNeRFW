@@ -111,9 +111,15 @@ class Trainer(BaseTrainer):
 
         # Map to device
         
-        rgb, pos_x, pos_y, idx = data
+        img, pos_x, pos_y, idx = data
+
+        rgb = img[:, :, :3]
+        mask = img[:, :, 3]
+        depth = img[:, :, 4]
 
         rgb=rgb.reshape(-1,3)
+        mask=mask.reshape(-1)
+        depth=depth.reshape(-1)
         pos_x=pos_x.reshape(-1)
         pos_y=pos_y.reshape(-1)
         idx=idx.reshape(-1)

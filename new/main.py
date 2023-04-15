@@ -50,7 +50,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 from extensions.dataset import DatasetLoader, MyDataset, NeRFSyntheticDataset
 loader = DatasetLoader()
-data = loader.load(dataset_path, mip=mip, with_mask=False, with_depth=False, dataset_num_workers=dataset_num_workers)
+data = loader.load(dataset_path, mip=mip, with_mask=True, with_depth=False, dataset_num_workers=dataset_num_workers)
 # train_dataset = NeRFSyntheticDataset(dataset_path, 
 #                                    mip=4, 
 #                                    dataset_num_workers=dataset_num_workers,

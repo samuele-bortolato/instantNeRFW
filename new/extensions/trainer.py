@@ -164,7 +164,7 @@ class Trainer(BaseTrainer):
             empty_loss = (rb.alpha * torch.exp( -self.empty_sel*torch.sum(torch.square(rgb[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()).mean()
 
             loss += rgb_loss # self.extra_args["rgb_loss"] *
-            loss += mask_loss * 1e-2
+            loss += mask_loss * 1e-3
             loss += self.trans_mult * trans_loss
             loss += self.entropy_mult * entropy_loss
             loss += self.empty_mult * empty_loss

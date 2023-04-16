@@ -7,7 +7,7 @@ dataset = 'greendino_new'
 invert = True
 
 datasets_folder = os.path.join(os.getcwd(), 'datasets')
-mask_folder = os.path.join(datasets_folder, dataset, 'otsu')
+mask_folder = os.path.join(datasets_folder, dataset, 'masks')
 image_folder = os.path.join(datasets_folder, dataset, 'images')
 
 image = os.path.join(image_folder, os.listdir(image_folder)[0])
@@ -26,7 +26,7 @@ for mask in os.listdir(mask_folder):
             _, m = cv2.threshold(m, 255//2, 255, cv2.THRESH_BINARY_INV)
         else:
             _, m = cv2.threshold(m, 255//2, 255, cv2.THRESH_BINARY)
-
+        print(np.sum(m == 0) + np.sum(m == 255), m.size)
         name, ext = mask.split('.')
         print(os.path.join(mask_folder, name + '.jpg'))
         cv2.imwrite(os.path.join(mask_folder, name + '.jpg'), m)

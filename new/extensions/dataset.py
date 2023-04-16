@@ -9,6 +9,7 @@ import logging as log
 from typing import Callable, List, Dict, Union
 import numpy as np
 import torch
+import torchvision
 from torch.multiprocessing import Pool
 from kaolin.render.camera import Camera, blender_coords
 from wisp.core import Rays
@@ -165,10 +166,11 @@ class DatasetLoader():
 
             # Load mask
             if with_mask and os.path.exists(mask_path):
-                mask = load_rgb(mask_path)
+                mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
                 if mip is not None:
-                    mask = resize_mip(mask, mip, interpolation=cv2.INTER_AREA)
-                mask = torch.FloatTensor(mask)
+                    mask = resize_mip(mask, mip, interpolation=cv2.INTER_MAX)
+                _, mask = cv2.threshold(mask, 255//2, 255, cv2.THRESH_BINARY)
+                mask = torch.FloatTensor(mask) / 255.
 
             # Load depth map
             if with_depth and os.path.exists(depth_path):

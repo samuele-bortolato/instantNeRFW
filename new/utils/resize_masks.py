@@ -18,15 +18,15 @@ for mask in os.listdir(mask_folder):
     name, ext = mask.split('.')
     if ext == 'png':
         mask_path = os.path.join(mask_folder, mask)
-        m = cv2.imread(mask_path)
-        m = cv2.cvtColor(m, cv2.COLOR_BGR2GRAY)
+        m = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         m = cv2.resize(m, (h, w))
 
         if invert:
             _, m = cv2.threshold(m, 255//2, 255, cv2.THRESH_BINARY_INV)
         else:
             _, m = cv2.threshold(m, 255//2, 255, cv2.THRESH_BINARY)
-        print(np.sum(m == 0) + np.sum(m == 255), m.size)
+        if np.sum(m == 0) + np.sum(m == 255)!= m.size:
+            raise "Mask are not binary!!"
         name, ext = mask.split('.')
         print(os.path.join(mask_folder, name + '.jpg'))
         cv2.imwrite(os.path.join(mask_folder, name + '.jpg'), m)

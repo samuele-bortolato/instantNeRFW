@@ -1,6 +1,6 @@
 import numpy as np
 
-dataset_path='datasets/yellowdino_new_new/'
+dataset_path='datasets/greendino_new/'
 #model_path='_results/logs/runs/NerfW for hand-held objects/20230308-003325/model.pth'
 
 epochs=500

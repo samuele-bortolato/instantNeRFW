@@ -111,15 +111,19 @@ class Trainer(BaseTrainer):
 
         # Map to device
         
-        img, pos_x, pos_y, idx = data
+        point, pos_x, pos_y, idx = data
 
-        rgb = img[:, :, :3]
-        mask = img[:, :, 3]
-        depth = img[:, :, 4]
+        rgb = point['rgb']
+        if 'mask' in point.keys():
+            mask = point['mask']
+        if 'depth' in point.keys():
+            depth = point['depth']
 
         rgb=rgb.reshape(-1,3)
-        mask=mask.reshape(-1)
-        depth=depth.reshape(-1)
+        if mask is not None:
+            mask=mask.reshape(-1)
+        if depth is not None:
+            depth=depth.reshape(-1)
         pos_x=pos_x.reshape(-1)
         pos_y=pos_y.reshape(-1)
         idx=idx.reshape(-1)
@@ -152,7 +156,8 @@ class Trainer(BaseTrainer):
             l1=0.01
             rgb_loss = torch.square((rb.rgb[..., :3] - rgb[..., :3])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach())).mean()
 
-            mask_loss = torch.mean((rb.alpha * (1 - mask)))
+            if mask is not None:
+                mask_loss = torch.mean(  (rb.alpha*(1 - mask)) + (1-rb.alpha)*(1-rb.alpha_t)*(mask)  )
             
             trans_loss = -torch.log((1-rb.alpha_t)*(1-1e-5)).mean()
 
@@ -164,7 +169,10 @@ class Trainer(BaseTrainer):
             empty_loss = (rb.alpha * torch.exp( -self.empty_sel*torch.sum(torch.square(rgb[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()).mean()
 
             loss += rgb_loss # self.extra_args["rgb_loss"] *
-            loss += mask_loss * 1e-3
+            
+            if mask is not None:
+                loss += mask_loss * 1e-2
+
             loss += self.trans_mult * trans_loss
             loss += self.entropy_mult * entropy_loss
             loss += self.empty_mult * empty_loss

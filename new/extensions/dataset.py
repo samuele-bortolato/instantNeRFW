@@ -25,7 +25,19 @@ import time
 
 
 class MyDataset(torch.utils.data.Dataset):
-    def __init__(self, imgs, rays_per_sample):
+    def __init__(self, imgs, mask=None, depth=None, rays_per_sample=2048):
+        
+        if mask is not None:
+            self.with_mask=True
+            imgs = torch.cat(([imgs, mask]), dim=-1)
+        else:
+            self.with_mask=False
+
+        if depth is not None:
+            self.with_depth=True
+            imgs = torch.cat(([imgs, depth]), dim=-1)
+        else:
+            self.with_depth=False
 
         self.num_imgs = imgs.shape[0]
         self.points = imgs
@@ -42,7 +54,18 @@ class MyDataset(torch.utils.data.Dataset):
         pos0 = torch.randint(0,img.shape[0],(self.rays_per_sample,),dtype=torch.int64, device='cuda')
         pos1 = torch.randint(0,img.shape[1],(self.rays_per_sample,),dtype=torch.int64, device='cuda')
 
-        return (img[pos0,pos1], 
+        point = img[pos0,pos1]
+        data = {'rgb':point[...,:3]}
+        
+        if self.with_mask:
+            data['mask'] = point[...,3:4]
+            if self.with_depth:
+                data['depth'] = point[...,4:5]
+        else:
+            if self.with_mask:
+                data['depth'] = point[...,3:4]
+
+        return (data, 
                 pos1.type(torch.float32)+0.5, 
                 pos0.type(torch.float32)+0.5, 
                 torch.empty(self.rays_per_sample, dtype=torch.int64, device='cuda').fill_(idx))
@@ -150,6 +173,14 @@ class DatasetLoader():
         mask_path = os.path.join(root, 'masks', basename + '.jpg')
         depth_path = os.path.join(root, 'depths', basename + '.jpg')
 
+        # if with_mask:
+        #     mask_file = [name for name in os.listdir(os.path.join(root, 'masks')) if name.split('.')[0]==basename][0]
+        #     mask_path = os.path.join(root, 'masks', mask_file)
+        # if with_depth:
+        #     depth_file = [name for name in os.listdir(os.path.join(root, 'depths')) if name.split('.')[0]==basename][0]
+        #     depth_path = os.path.join(root, 'depths', depth_file)
+
+
         mask = None
         depth = None
         
@@ -169,8 +200,9 @@ class DatasetLoader():
                 mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
                 if mip is not None:
                     mask = resize_mip(mask, mip, interpolation=cv2.INTER_MAX)
-                _, mask = cv2.threshold(mask, 255//2, 255, cv2.THRESH_BINARY)
-                mask = torch.FloatTensor(mask) / 255.
+                # _, mask = cv2.threshold(mask, 255//2, 255, cv2.THRESH_BINARY)
+                # mask = torch.FloatTensor(mask) / 255.
+                mask = torch.FloatTensor(mask > (mask.max()+mask.min())/2)
 
             # Load depth map
             if with_depth and os.path.exists(depth_path):

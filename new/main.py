@@ -58,8 +58,8 @@ data = loader.load(dataset_path, mip=mip, with_mask=True, with_depth=False, data
 #                                    bg_color='black',
 #                                    num_samples=num_samples)
 
-inp_data = torch.cat((data['rgb'], data['masks'], data['depths']), dim=-1)
-train_dataset = MyDataset(inp_data, rays_per_sample=num_samples)
+#inp_data = torch.cat((data['rgb'], data['masks'], data['depths']), dim=-1)
+train_dataset = MyDataset(data['rgb'], mask=data['masks'], depth=data['depths'], rays_per_sample=num_samples)
 
 from extensions.cameras import Cameras
 

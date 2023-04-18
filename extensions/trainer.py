@@ -164,6 +164,37 @@ class Trainer(BaseTrainer):
         log.info(log_text)
  
         return {"psnr" : psnr_total, "lpips": lpips_total, "ssim": ssim_total}
+    
+    
+    def render_tb(self):
+        """
+        Override this function to change render logging to TensorBoard / Wandb.
+        """
+        self.pipeline.eval()
+        for camera_origin in self.extra_args["camera_origin"]:
+            for d in [self.extra_args["num_lods"] - 1]:
+                out = self.renderer.shade_images(self.pipeline,
+                                                f=camera_origin,
+                                                t=self.extra_args["camera_lookat"],
+                                                fov=self.extra_args["camera_fov"],
+                                                lod_idx=d,
+                                                camera_clamp=self.extra_args["camera_clamp"])
+
+                # Premultiply the alphas since we're writing to PNG (technically they're already premultiplied)
+                if self.extra_args["bg_color"] == 'black' and out.rgb.shape[-1] > 3:
+                    bg = torch.ones_like(out.rgb[..., :3])
+                    out.rgb[..., :3] += bg * (1.0 - out.rgb[..., 3:4])
+
+                out = out.image().byte().numpy_dict()
+
+                log_buffers = ['depth', 'hit', 'normal', 'rgb', 'alpha']
+
+                for key in log_buffers:
+                    if out.get(key) is not None:
+                        self.writer.add_image(f'{key}/{camera_origin}/{d}', out[key].T, self.epoch)
+                        if self.using_wandb:
+                            log_images_to_wandb(f'{key}/{camera_origin}/{d}', out[key].T, self.epoch)
+                            
 
     def render_final_view(self, num_angles, camera_distance):
         angles = np.pi * 0.1 * np.array(list(range(num_angles + 1)))

@@ -28,8 +28,9 @@ class Trainer(BaseTrainer):
                  optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
                  exp_name=None, info=None, scene_state=None, extra_args=None, validation_dataset = None,
                  render_tb_every=-1, save_every=-1, trainer_mode='validate', using_wandb=False, 
-                 trans_mult = 1e-4, entropy_mult = 1e-1, empty_mult = 1e-3, empty_selectivity = 50, batch_accumulate = 1, profile=False):
-                 
+                 trans_mult = 1e-4, entropy_mult = 1e-1, empty_mult = 1e-3, cameras_lr_weight=1e-2, empty_selectivity = 50, batch_accumulate = 1, profile=False):
+
+        self.cameras_lr_weight=cameras_lr_weight    
         super().__init__(pipeline, dataset, num_epochs, batch_size,
                  optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
                  exp_name=exp_name, info=info, scene_state=scene_state, extra_args=extra_args, validation_dataset=validation_dataset,
@@ -38,6 +39,7 @@ class Trainer(BaseTrainer):
         self.trans_mult = trans_mult
         self.entropy_mult = entropy_mult
         self.empty_mult = empty_mult
+        
         self.empty_sel = empty_selectivity
         self.batch_accumulate = batch_accumulate
         self.extra_args = extra_args
@@ -68,6 +70,53 @@ class Trainer(BaseTrainer):
                                             shuffle=True, pin_memory=False,
                                             num_workers=self.extra_args['dataloader_num_workers'])
         self.iterations_per_epoch = len(self.train_data_loader)
+
+
+    def init_optimizer(self):
+        """Default initialization for the optimizer.
+        """
+
+        params_dict = { name : param for name, param in self.pipeline.nef.named_parameters()}
+        
+        params = []
+        decoder_params = []
+        grid_params = []
+        cameras_params = []
+        rest_params = []
+
+        for name in params_dict:
+            
+            if 'decoder' in name:
+                # If "decoder" is in the name, there's a good chance it is in fact a decoder,
+                # so use weight_decay
+                decoder_params.append(params_dict[name])
+
+            elif 'grid' in name:
+                # If "grid" is in the name, there's a good chance it is in fact a grid,
+                # so use grid_lr_weight
+                grid_params.append(params_dict[name])
+            
+            elif 'camera' in name:
+                cameras_params.append(params_dict[name])
+
+            else:
+                rest_params.append(params_dict[name])
+
+        params.append({"params" : decoder_params,
+                       "lr": self.lr, 
+                       "weight_decay": self.weight_decay})
+
+        params.append({"params" : grid_params,
+                       "lr": self.lr * self.grid_lr_weight})
+        
+        params.append({"params" : cameras_params,
+                       "lr": self.lr * self.cameras_lr_weight})
+        
+        params.append({"params" : rest_params,
+                       "lr": self.lr})
+
+        self.optimizer = self.optim_cls(params, **self.optim_params)
+
 
     def train(self):
         """

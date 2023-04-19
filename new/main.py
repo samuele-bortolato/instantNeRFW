@@ -63,7 +63,7 @@ train_dataset = MyDataset(data['rgb'], mask=data['masks'], depth=data['depths'],
 
 from extensions.cameras import Cameras
 
-cams = Cameras(**data['cameras'])
+cams = Cameras(**data['cameras'], trainable=False)
 
 
 #input()
@@ -142,6 +142,7 @@ trainer = Trainer(pipeline=pipeline,
                 lr=lr,
                 weight_decay=weight_decay,     # Weight decay, applied only to decoder weights.
                 grid_lr_weight=100.0, # Relative learning rate weighting applied only for the grid parameters
+                cameras_lr_weight=1e-2,
                 optim_params=dict(lr=lr, weight_decay=weight_decay, betas=(0.9, 0.99), eps=1e-15),
                 log_dir=log_dir,
                 device=device,

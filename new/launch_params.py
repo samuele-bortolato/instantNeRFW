@@ -5,7 +5,7 @@ dataset_path='datasets/greendino_new/'
 
 epochs=500
 
-trans_mult = 1e-3
+trans_mult = 1e-2
 entropy_mult = 1e-2 * 0
 empty_mult = 1e-3 * 0
 
@@ -17,7 +17,7 @@ plot_grid=False
 num_samples=2**12
 max_samples = 2**20
 
-num_angles=5
+num_angles=0
 angles = np.pi * 0.1 * np.array(list(range(num_angles + 1)))
 x = -2 * np.sin(angles)
 y = [1.25] * (num_angles + 1)

@@ -28,7 +28,7 @@ class Trainer(BaseTrainer):
                  optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
                  exp_name=None, info=None, scene_state=None, extra_args=None, validation_dataset = None,
                  render_tb_every=-1, save_every=-1, trainer_mode='validate', using_wandb=False, 
-                 trans_mult = 1e-4, entropy_mult = 1e-1, empty_mult = 1e-3, cameras_lr_weight=1e-2, empty_selectivity = 50, batch_accumulate = 1, profile=False):
+                 trans_mult = 1e-4, entropy_mult = 1e-1, empty_mult = 1e-3, mask_mult=1e-3, cameras_lr_weight=1e-2, empty_selectivity = 50, batch_accumulate = 1, profile=False):
 
         self.cameras_lr_weight=cameras_lr_weight    
         super().__init__(pipeline, dataset, num_epochs, batch_size,
@@ -39,6 +39,7 @@ class Trainer(BaseTrainer):
         self.trans_mult = trans_mult
         self.entropy_mult = entropy_mult
         self.empty_mult = empty_mult
+        self.mask_mult = mask_mult
         
         self.empty_sel = empty_selectivity
         self.batch_accumulate = batch_accumulate
@@ -221,7 +222,7 @@ class Trainer(BaseTrainer):
             loss += rgb_loss # self.extra_args["rgb_loss"] *
             
             if mask is not None:
-                loss += mask_loss * 1e-2
+                loss += mask_loss * self.mask_mult
 
             loss += self.trans_mult * trans_loss
             loss += self.entropy_mult * entropy_loss

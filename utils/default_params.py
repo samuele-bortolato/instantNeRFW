@@ -70,10 +70,12 @@ batch_accumulate = 4
 lr = 1e-3
 weight_decay=0      # Weight decay, applied only to decoder weights.
 grid_lr_weight = 100.0 # Relative learning rate weighting applied only for the grid parameters
+cameras_lr_weight = 1e-3
 
 trans_mult = 1e-4 
 entropy_mult = 0 
 empty_mult = 0
+mask_mult = 0
 empty_selectivity = 50
 
 # logs

@@ -142,7 +142,7 @@ trainer = Trainer(pipeline=pipeline,
                 lr=lr,
                 weight_decay=weight_decay,     # Weight decay, applied only to decoder weights.
                 grid_lr_weight=100.0, # Relative learning rate weighting applied only for the grid parameters
-                cameras_lr_weight=1e-2,
+                cameras_lr_weight=cameras_lr_weight,
                 optim_params=dict(lr=lr, weight_decay=weight_decay, betas=(0.9, 0.99), eps=1e-15),
                 log_dir=log_dir,
                 device=device,
@@ -181,6 +181,7 @@ trainer = Trainer(pipeline=pipeline,
                 trans_mult = trans_mult, 
                 entropy_mult = entropy_mult, 
                 empty_mult = empty_mult, 
+                mask_mult=mask_mult,
                 empty_selectivity = empty_selectivity)
 
 torch.cuda.empty_cache()

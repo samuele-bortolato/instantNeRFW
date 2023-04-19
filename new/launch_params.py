@@ -8,6 +8,9 @@ epochs=500
 trans_mult = 1e-2
 entropy_mult = 1e-2 * 0
 empty_mult = 1e-3 * 0
+mask_mult = 1e-2
+
+cameras_lr_weight = 1e-3
 
 trainable_background = False
 starting_background = [0.5,0.5,0.7]

@@ -199,7 +199,7 @@ class DatasetLoader():
             if with_mask and os.path.exists(mask_path):
                 mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
                 if mip is not None:
-                    mask = resize_mip(mask, mip, interpolation=cv2.INTER_MAX)
+                    mask = resize_mip(mask, mip, interpolation=cv2.INTER_AREA)
                 # _, mask = cv2.threshold(mask, 255//2, 255, cv2.THRESH_BINARY)
                 # mask = torch.FloatTensor(mask) / 255.
                 mask = torch.FloatTensor(mask > (mask.max()+mask.min())/2)

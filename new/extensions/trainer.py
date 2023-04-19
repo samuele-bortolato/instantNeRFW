@@ -40,6 +40,7 @@ class Trainer(BaseTrainer):
         self.empty_mult = empty_mult
         self.empty_sel = empty_selectivity
         self.batch_accumulate = batch_accumulate
+        self.extra_args = extra_args
         self.initial_prune()
 
     def initial_prune(self):
@@ -249,6 +250,41 @@ class Trainer(BaseTrainer):
         log.info(log_text)
  
         return {"psnr" : psnr_total, "lpips": lpips_total, "ssim": ssim_total}
+
+
+    def render_tb(self):
+        """
+        Override this function to change render logging to TensorBoard / Wandb.
+        """
+        self.pipeline.eval()
+        angles = np.pi * 0.1 * np.array(list(range(self.extra_args["num_angles"])))
+        x = -self.extra_args["camera_distance"] * np.sin(angles)
+        y = self.extra_args["camera_origin"][1]
+        z = -self.extra_args["camera_distance"] * np.cos(angles)
+        for d in [self.extra_args["num_lods"] - 1]:
+            for idx in tqdm(range(self.extra_args["num_angles"]), desc=f"Generating 360 Degree of View for LOD {d}"):
+                out = self.renderer.shade_images(self.pipeline,
+                                                f=[x[idx], y, z[idx]],
+                                                t=self.extra_args["camera_lookat"],
+                                                fov=self.extra_args["camera_fov"],
+                                                lod_idx=d,
+                                                camera_clamp=self.extra_args["camera_clamp"])
+
+                # Premultiply the alphas since we're writing to PNG (technically they're already premultiplied)
+                if self.extra_args["bg_color"] == 'black' and out.rgb.shape[-1] > 3:
+                    bg = torch.ones_like(out.rgb[..., :3])
+                    out.rgb[..., :3] += bg * (1.0 - out.rgb[..., 3:4])
+
+                out = out.image().byte().numpy_dict()
+
+                log_buffers = ['depth', 'hit', 'normal', 'rgb', 'alpha']
+
+                for key in log_buffers:
+                    if out.get(key) is not None:
+                        self.writer.add_image(f'{key}/{d}/{idx}', out[key].T, self.epoch)
+                        if self.using_wandb:
+                            log_images_to_wandb(f'{key}/{d}/{idx}', out[key].T, self.epoch)
+
 
     def render_final_view(self, num_angles, camera_distance):
         angles = np.pi * 0.1 * np.array(list(range(num_angles + 1)))

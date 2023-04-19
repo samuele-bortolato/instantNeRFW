@@ -36,7 +36,7 @@ class Cameras(torch.nn.Module):
         rotation_matrix = self.poses[ cam_ids, :3, :3]
         
         ray_dir = (rotation_matrix @ ray_dir[...,None])[:,:,0]
-        ray_dir /= torch.linalg.norm(ray_dir, dim=-1, keepdim=True)
+        ray_dir = ray_dir / torch.linalg.norm(ray_dir, dim=-1, keepdim=True)
 
         return Rays(origins=ray_orig, dirs=ray_dir, dist_min=self.near, dist_max=self.far)
 

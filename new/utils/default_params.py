@@ -22,6 +22,7 @@ min_grid_res=16
 max_grid_res=4096
 blas_level=7
 ## Grid Transient
+trans_type = "tensor"
 t_feature_dim=2
 t_num_lods=16
 t_multiscale_type='cat'

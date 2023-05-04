@@ -106,7 +106,10 @@ class Nef(BaseNeuralField):
         """
         super().__init__()
         self.grid = grid
-        self.grid_t = grid_t
+        if isinstance(grid_t, torch.Tensor):
+            self.grid_t = torch.nn.parameter.Parameter(grid_t)
+        else:
+            self.grid_t = grid_t
         self.grid.occupancy=torch.ones_like(self.grid.occupancy)*prune_min_density/prune_density_decay
         res = 2**self.grid.blas_level
         self.grid.occupancy=self.grid.occupancy.reshape((res,res,res))
@@ -147,7 +150,7 @@ class Nef(BaseNeuralField):
                                      num_layers=num_layers + 1,
                                      hidden_dim=hidden_dim,
                                      skip=[])
-        if grid_t is not None:
+        if isinstance(grid_t, HashGrid):
             self.decoder_transient = BasicDecoder(input_dim=self.transient_net_input_dim(),
                                         output_dim=1,
                                         activation=get_activation_class(activation_type),
@@ -303,16 +306,20 @@ class Nef(BaseNeuralField):
         """
         self._register_forward_function(self.sample, ["density", "rgb", "rgb_t", "density_t", "beta_t"])
 
-    def sample_t(self, ray_d=None, idx=None, lod_idx=None):
+    def sample_t(self, ray_d=None, idx=None, pos_x=None, pos_y=None, lod_idx=None):
         if lod_idx is None:
             lod_idx = len(self.grid.active_lods) - 1
         
-        batch, _ = ray_d.shape
-        
-        feats_t = self.grid_t.interpolate(  ray_d + idx[:,None]*self.offset, 
-                                            lod_idx).reshape(batch, -1)
+        if isinstance(self.grid_t, HashGrid):
+            batch, _ = ray_d.shape
+            
+            feats_t = self.grid_t.interpolate(  ray_d + idx[:,None]*self.offset, 
+                                                lod_idx).reshape(batch, -1)
 
-        transient = self.decoder_transient(feats_t)
+            transient = self.decoder_transient(feats_t)
+
+        else:
+            transient = self.grid_t[idx, pos_y.floor().long(), pos_x.floor().long()].to(pos_x.device)
 
         a_t = torch.sigmoid(transient[...,0:1])
 

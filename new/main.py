@@ -86,13 +86,19 @@ grid = HashGrid.from_geometric(feature_dim=feature_dim,
                                max_grid_res=max_grid_res,
                                blas_level=blas_level)
 
-grid_t=HashGrid.from_geometric(feature_dim=t_feature_dim,
-                                num_lods=t_num_lods,
-                                multiscale_type=t_multiscale_type,
-                                codebook_bitwidth=t_codebook_bitwidth,
-                                min_grid_res=t_min_grid_res,
-                                max_grid_res=t_max_grid_res,
-                                blas_level=0).cuda()
+
+if trans_type == "tensor":
+    grid_t = torch.ones_like(data['masks'])*(-1)
+elif trans_type == "hashgrid":
+    grid_t = HashGrid.from_geometric(feature_dim=t_feature_dim,
+                                    num_lods=t_num_lods,
+                                    multiscale_type=t_multiscale_type,
+                                    codebook_bitwidth=t_codebook_bitwidth,
+                                    min_grid_res=t_min_grid_res,
+                                    max_grid_res=t_max_grid_res,
+                                    blas_level=0).cuda()
+else:
+    grid_t = None
 
 
 appearence_emb=torch.randn(len(train_dataset), appearence_emb_dim, device='cuda')*0.01

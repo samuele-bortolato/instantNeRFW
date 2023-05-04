@@ -243,7 +243,7 @@ class Tracer(BaseTracer):
         rgb[ridx_hit] = color
 
         if idx is not None: # use transients
-            alpha_t = nef.sample_t(ray_d=rays.dirs, idx=idx)
+            alpha_t = nef.sample_t(ray_d=rays.dirs, idx=idx, pos_x=pos_x, pos_y=pos_y)
             extra_outputs = {'density': density, 'alpha_t': alpha_t}
         else:
             extra_outputs = {}

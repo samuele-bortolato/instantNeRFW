@@ -31,6 +31,7 @@ class Nef(BaseNeuralField):
                  grid: BLASGrid = None,
                  grid_t: List[BLASGrid] = None,
                  appearence_embedding: torch.Tensor = None,
+                 depth_trans: torch.Tensor = None,
                  cameras = None,
                  # embedder args
                  pos_embedder: str = 'none',
@@ -113,8 +114,10 @@ class Nef(BaseNeuralField):
         self.grid.occupancy=torch.ones_like(self.grid.occupancy)*prune_min_density/prune_density_decay
         res = 2**self.grid.blas_level
         self.grid.occupancy=self.grid.occupancy.reshape((res,res,res))
-        self.appearence_embedding = appearence_embedding
         self.appearence_feat = appearence_embedding.shape[1]
+
+        self.appearence_embedding = torch.nn.parameter.Parameter(appearence_embedding)
+        self.depth_trans = torch.nn.parameter.Parameter(depth_trans)
         self.cameras=cameras
 
         # Init Embedders

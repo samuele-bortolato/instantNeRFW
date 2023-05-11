@@ -202,7 +202,10 @@ class Trainer(BaseTrainer):
             lod_idx = None
 
         with torch.cuda.amp.autocast():
-            rb = self.pipeline(rays=rays, idx=idx, pos_x=pos_x, pos_y=pos_y, lod_idx=lod_idx, channels=["rgb"])
+            rb = self.pipeline(rays=rays, idx=idx, pos_x=pos_x, pos_y=pos_y, lod_idx=lod_idx, channels=["rgb", "depth"])
+
+            alpha_beta = self.pipeline.nef.depth_trans[idx]
+            depth_loss = torch.mean(torch.abs(alpha_beta[0]*rb.depth + alpha_beta[1]))
 
             l1=0.01
             rgb_loss = torch.square((rb.rgb[..., :3] - rgb[..., :3])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach())).mean()

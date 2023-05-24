@@ -73,7 +73,19 @@ class Trainer(BaseTrainer):
                                             collate_fn=default_collate,
                                             shuffle=True, pin_memory=False,
                                             num_workers=self.extra_args['dataloader_num_workers'])
+        self.train_data_loader_t = DataLoader(self.train_dataset,
+                                            batch_size=self.batch_size,
+                                            collate_fn=default_collate,
+                                            shuffle=True, pin_memory=False,
+                                            num_workers=self.extra_args['dataloader_num_workers'])
         self.iterations_per_epoch = len(self.train_data_loader)
+
+    def reset_data_iterator(self):
+        """Rewind the iterator for the new epoch.
+        """
+        self.scene_state.optimization.iterations_per_epoch = len(self.train_data_loader)
+        self.train_data_loader_iter = iter(self.train_data_loader)
+        self.train_data_loader_iter_t = iter(self.train_data_loader_t)
 
 
     def init_optimizer(self):
@@ -178,22 +190,24 @@ class Trainer(BaseTrainer):
         pixel_scaled[:, :, 1] = scale * pixel_scaled[:, :, 1] / (h - 1) - loc
         return pixel_locations, pixel_scaled
 
-    def get_pc(self, idx, num_rays):
+    def get_pc(self, data, pos_x, pos_y, idx):
 
-        data, pos_x, pos_y, _ = self.train_dataset.__getitem__(idx, num_rays, reject=True)
         rays = self.pipeline.nef.cameras.get_rays(idx, pos_x, pos_y)
         alpha_depth = self.pipeline.nef.depth_trans[idx,0]
         beta_depth = self.pipeline.nef.depth_trans[idx,1]
         pc1 = rays.origins[None] + (alpha_depth[...,None] * data['depth'] + beta_depth[...,None])*rays.dirs
+        pc1 = pc1[(data['mask']>0).squeeze(2)]
 
-        idx_t = torch.randint(0, len(self.train_dataset)-1, (1,), device=self.device).item()
-        if idx_t >= idx:
-            idx_t += 1
-        data, pos_x, pos_y, _ = self.train_dataset.__getitem__(idx_t, num_rays, reject=True)
-        rays = self.pipeline.nef.cameras.get_rays(idx_t, pos_x, pos_y)
-        alpha_depth = self.pipeline.nef.depth_trans[idx_t,0]
-        beta_depth = self.pipeline.nef.depth_trans[idx_t,1]
+        data, pos_x, pos_y, idx = next(self.train_data_loader_iter_t)
+        pos_x=pos_x.reshape(-1)
+        pos_y=pos_y.reshape(-1)
+        idx=idx.reshape(-1)
+
+        rays = self.pipeline.nef.cameras.get_rays(idx, pos_x, pos_y)
+        alpha_depth = self.pipeline.nef.depth_trans[idx,0]
+        beta_depth = self.pipeline.nef.depth_trans[idx,1]
         pc2 = rays.origins[None] + (alpha_depth[...,None] * data['depth'] + beta_depth[...,None])*rays.dirs
+        pc2 = pc2[(data['mask']>0).squeeze(2)]
 
         return pc1, pc2 
 
@@ -243,9 +257,9 @@ class Trainer(BaseTrainer):
             lod_idx = None
 
         with torch.cuda.amp.autocast():
-            pc1, pc2 = self.get_pc(idx[0], 4096)
+            pc1, pc2 = self.get_pc(point, pos_x, pos_y, idx)
             dist1, dist2, _, _ = chamfer_distance(pc1[None], pc2[None])
-            pc_loss = torch.mean(dist1 + dist2)
+            pc_loss = torch.mean(dist1) + torch.mean(dist2)
 
             rb = self.pipeline(rays=rays, idx=idx, pos_x=pos_x, pos_y=pos_y, lod_idx=lod_idx, channels=["rgb", "depth"])
 
@@ -276,7 +290,7 @@ class Trainer(BaseTrainer):
                 loss += mask_loss * self.mask_mult
 
             loss += pc_loss*1e-1
-            loss += depth_loss*1e-2
+            loss += depth_loss*1e-3
             loss += self.trans_mult * trans_loss
             loss += self.entropy_mult * entropy_loss
             loss += self.empty_mult * empty_loss

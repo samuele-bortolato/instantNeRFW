@@ -40,7 +40,7 @@ class MyDataset(torch.utils.data.Dataset):
             self.with_depth=False
 
         self.num_imgs = imgs.shape[0]
-        self.points = imgs
+        self.points = imgs.pin_memory() 
         self.rays_per_sample = rays_per_sample
         self.h = imgs.shape[1]
         self.w = imgs.shape[2]
@@ -50,7 +50,7 @@ class MyDataset(torch.utils.data.Dataset):
     
     def __getitem__(self, idx, num_rays=None, reject=False):
 
-        img = self.points[idx].cuda()
+        img = self.points[idx].cuda(non_blocking=True)
         
         if num_rays is None:
             num_rays = self.rays_per_sample

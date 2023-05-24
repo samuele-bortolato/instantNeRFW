@@ -116,7 +116,7 @@ class Nef(BaseNeuralField):
         self.grid.occupancy=self.grid.occupancy.reshape((res,res,res))
         self.appearence_feat = appearence_embedding.shape[1]
 
-        self.appearence_embedding = torch.nn.parameter.Parameter(appearence_embedding)
+        self.appearence_embedding = appearence_embedding #torch.nn.parameter.Parameter(appearence_embedding)
         self.depth_trans = torch.nn.parameter.Parameter(depth_trans)
         self.cameras=cameras
 

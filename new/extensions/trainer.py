@@ -204,16 +204,17 @@ class Trainer(BaseTrainer):
         with torch.cuda.amp.autocast():
             rb = self.pipeline(rays=rays, idx=idx, pos_x=pos_x, pos_y=pos_y, lod_idx=lod_idx, channels=["rgb", "depth"])
 
-            alpha_beta = self.pipeline.nef.depth_trans[idx]
-            depth_loss = torch.mean(torch.abs(alpha_beta[0]*rb.depth + alpha_beta[1]))
 
             l1=0.01
             rgb_loss = torch.square((rb.rgb[..., :3] - rgb[..., :3])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach())).mean()
 
+            alpha_beta = self.pipeline.nef.depth_trans[idx]
+            depth_loss = torch.mean(torch.abs(alpha_beta[0]*rb.depth + alpha_beta[1])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach()))
+
             if mask is not None:
                 mask_loss = torch.mean(  (rb.alpha*(1 - mask)) + (1-rb.alpha)*(1-rb.alpha_t)*(mask)  )
             
-            trans_loss = -torch.log((1-rb.alpha_t)*(1-1e-5)).mean()
+            trans_loss = -torch.log((1-rb.alpha_t)+1e-5).mean()
 
             
 
@@ -227,6 +228,7 @@ class Trainer(BaseTrainer):
             if mask is not None:
                 loss += mask_loss * self.mask_mult
 
+            loss += depth_loss*1e-1
             loss += self.trans_mult * trans_loss
             loss += self.entropy_mult * entropy_loss
             loss += self.empty_mult * empty_loss

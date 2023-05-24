@@ -63,7 +63,7 @@ train_dataset = MyDataset(data['rgb'], mask=data['masks'], depth=data['depths'],
 
 from extensions.cameras import Cameras
 
-cams = Cameras(**data['cameras'], trainable=False)
+cams = Cameras(**data['cameras'], trainable=True)
 
 
 #input()
@@ -103,6 +103,7 @@ else:
 
 appearence_emb=torch.randn(len(train_dataset), appearence_emb_dim, device='cuda')*0.01
 depth_trans = torch.zeros((len(train_dataset), 2), device='cuda')
+depth_trans[:,0] = 1
 
 from wisp.models.nefs import NeuralRadianceField
 nerf =  Nef(grid=grid,

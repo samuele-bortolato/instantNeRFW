@@ -48,13 +48,24 @@ class MyDataset(torch.utils.data.Dataset):
     def __len__(self):
         return self.num_imgs
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, num_rays=None, reject=False):
 
         img = self.points[idx].cuda()
-        pos0 = torch.randint(0,img.shape[0],(self.rays_per_sample,),dtype=torch.int64, device='cuda')
-        pos1 = torch.randint(0,img.shape[1],(self.rays_per_sample,),dtype=torch.int64, device='cuda')
+        
+        if num_rays is None:
+            num_rays = self.rays_per_sample
+        
+        pos_y = torch.randint(0,img.shape[0],(num_rays,),dtype=torch.int64, device='cuda')
+        pos_x = torch.randint(0,img.shape[1],(num_rays,),dtype=torch.int64, device='cuda')
 
-        point = img[pos0,pos1]
+        if self.with_mask and reject:
+            wrong = img[pos_y,pos_x][...,3] != 1
+            while wrong.sum()>0:
+                pos_y[wrong] = torch.randint(0,img.shape[0],(wrong.sum(),),dtype=torch.int64, device='cuda')
+                pos_x[wrong] = torch.randint(0,img.shape[1],(wrong.sum(),),dtype=torch.int64, device='cuda')
+                wrong = img[pos_y,pos_x][...,3] != 1
+
+        point = img[pos_y,pos_x]
         data = {'rgb':point[...,:3]}
         
         if self.with_mask:
@@ -66,9 +77,9 @@ class MyDataset(torch.utils.data.Dataset):
                 data['depth'] = point[...,3:4]
 
         return (data, 
-                pos1.type(torch.float32)+0.5, 
-                pos0.type(torch.float32)+0.5, 
-                torch.empty(self.rays_per_sample, dtype=torch.int64, device='cuda').fill_(idx))
+                pos_x.type(torch.float32)+0.5, 
+                pos_y.type(torch.float32)+0.5, 
+                torch.empty(num_rays, dtype=torch.int64, device='cuda').fill_(idx))
 
 
 

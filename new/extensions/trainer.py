@@ -8,6 +8,7 @@ from tqdm import tqdm
 import random
 import pandas as pd
 import torch
+from torch.nn import functional as F
 from lpips import LPIPS
 from wisp.trainers import BaseTrainer, log_metric_to_wandb, log_images_to_wandb
 from wisp.ops.image import write_png, write_exr
@@ -21,6 +22,8 @@ from PIL import Image
 
 from torch.profiler import profile, record_function, ProfilerActivity
 from torch.utils.data import DataLoader
+
+from extensions.chamfer_distance import chamfer_distance
 
 class Trainer(BaseTrainer):
 
@@ -155,6 +158,44 @@ class Trainer(BaseTrainer):
         self.log_dict['trans_loss'] = 0.0
         self.log_dict['entropy_loss'] = 0.0
         self.log_dict['empty_loss'] = 0.0
+        self.log_dict['pc_loss'] = 0.0
+        self.log_dict['depth_loss'] = 0.0
+
+    def arange_pixels(self, resolution=(128, 128), batch_size=1, image_range=(-1., 1.)):
+        h, w = resolution
+        
+        # Arrange pixel location in scale resolution
+        pixel_locations = torch.meshgrid(torch.arange(0, h, device=self.device), torch.arange(0, w, device=self.device))
+        pixel_locations = torch.stack(
+            [pixel_locations[1], pixel_locations[0]],
+            dim=-1).long().view(1, -1, 2).repeat(batch_size, 1, 1)
+        pixel_scaled = pixel_locations.clone().float()
+
+        # Shift and scale points to match image_range
+        scale = (image_range[1] - image_range[0])
+        loc = (image_range[1] - image_range[0])/ 2
+        pixel_scaled[:, :, 0] = scale * pixel_scaled[:, :, 0] / (w - 1) - loc
+        pixel_scaled[:, :, 1] = scale * pixel_scaled[:, :, 1] / (h - 1) - loc
+        return pixel_locations, pixel_scaled
+
+    def get_pc(self, idx, num_rays):
+
+        data, pos_x, pos_y, _ = self.train_dataset.__getitem__(idx, num_rays, reject=True)
+        rays = self.pipeline.nef.cameras.get_rays(idx, pos_x, pos_y)
+        alpha_depth = self.pipeline.nef.depth_trans[idx,0]
+        beta_depth = self.pipeline.nef.depth_trans[idx,1]
+        pc1 = rays.origins[None] + (alpha_depth[...,None] * data['depth'] + beta_depth[...,None])*rays.dirs
+
+        idx_t = torch.randint(0, len(self.train_dataset)-1, (1,), device=self.device).item()
+        if idx_t >= idx:
+            idx_t += 1
+        data, pos_x, pos_y, _ = self.train_dataset.__getitem__(idx_t, num_rays, reject=True)
+        rays = self.pipeline.nef.cameras.get_rays(idx_t, pos_x, pos_y)
+        alpha_depth = self.pipeline.nef.depth_trans[idx_t,0]
+        beta_depth = self.pipeline.nef.depth_trans[idx_t,1]
+        pc2 = rays.origins[None] + (alpha_depth[...,None] * data['depth'] + beta_depth[...,None])*rays.dirs
+
+        return pc1, pc2 
 
     def step(self, data):
         """Implement the optimization over image-space loss.
@@ -202,19 +243,25 @@ class Trainer(BaseTrainer):
             lod_idx = None
 
         with torch.cuda.amp.autocast():
+            pc1, pc2 = self.get_pc(idx[0], 4096)
+            dist1, dist2, _, _ = chamfer_distance(pc1[None], pc2[None])
+            pc_loss = torch.mean(dist1 + dist2)
+
             rb = self.pipeline(rays=rays, idx=idx, pos_x=pos_x, pos_y=pos_y, lod_idx=lod_idx, channels=["rgb", "depth"])
 
 
             l1=0.01
             rgb_loss = torch.square((rb.rgb[..., :3] - rgb[..., :3])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach())).mean()
 
-            alpha_beta = self.pipeline.nef.depth_trans[idx]
-            depth_loss = torch.mean(torch.abs(alpha_beta[0]*rb.depth + alpha_beta[1])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach()))
+            alpha_depth = self.pipeline.nef.depth_trans[idx,0]
+            beta_depth = self.pipeline.nef.depth_trans[idx,1]
+
+            depth_loss = torch.mean(torch.abs(alpha_depth*rb.depth + beta_depth)*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach()))
 
             if mask is not None:
                 mask_loss = torch.mean(  (rb.alpha*(1 - mask)) + (1-rb.alpha)*(1-rb.alpha_t)*(mask)  )
             
-            trans_loss = -torch.log((1-rb.alpha_t)+1e-5).mean()
+            trans_loss = -torch.log((1-rb.alpha_t)+1e-7).mean()
 
             
 
@@ -228,7 +275,8 @@ class Trainer(BaseTrainer):
             if mask is not None:
                 loss += mask_loss * self.mask_mult
 
-            loss += depth_loss*1e-1
+            loss += pc_loss*1e-1
+            loss += depth_loss*1e-2
             loss += self.trans_mult * trans_loss
             loss += self.entropy_mult * entropy_loss
             loss += self.empty_mult * empty_loss
@@ -237,12 +285,14 @@ class Trainer(BaseTrainer):
             self.log_dict['trans_loss'] += trans_loss.item()
             self.log_dict['entropy_loss'] += entropy_loss.item()
             self.log_dict['empty_loss'] += empty_loss.item()
+            self.log_dict['depth_loss'] += depth_loss.item()
+            self.log_dict['pc_loss'] += pc_loss.item()
 
         print(f" {self.iteration}/{self.iterations_per_epoch}  ".rjust(10),
             f"rgb_loss: {self.log_dict['rgb_loss']/self.iteration:.3e}   ",
             f"trans_loss: {self.log_dict['trans_loss']/self.iteration:.3e}   ",
-            f"entropy_loss: {self.log_dict['entropy_loss']/self.iteration:.3e}   ",
-            f"empty_loss: {self.log_dict['empty_loss']/self.iteration:.3e}   ", 
+            f"depth_loss: {self.log_dict['depth_loss']/self.iteration:.3e}   ",
+            f"pc_loss: {self.log_dict['pc_loss']/self.iteration:.3e}   ", 
             end="\r")
 
         self.log_dict['total_loss'] += loss.item()

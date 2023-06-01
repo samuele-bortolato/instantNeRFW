@@ -23,6 +23,8 @@ class Cameras(torch.nn.Module):
         self.near = near
         self.far = far
 
+    def __len__(self,):
+        return len(self.poses)
 
     def get_rays(self, cam_ids, pos_x, pos_y):
         
@@ -34,6 +36,14 @@ class Cameras(torch.nn.Module):
                                 -torch.ones_like(pos_x)), dim=-1)
         
         rotation_matrix = self.poses[ cam_ids, :3, :3]
+        
+        # third_dir = rotation_matrix[:,:,2]
+        # first_dir = rotation_matrix[:,:,0]
+        # first_dir = first_dir-third_dir*(third_dir[:,None]@first_dir[...,None])[:,0]
+        # first_dir = first_dir/first_dir.norm(dim=1)[:,None]
+        # second_dir = torch.cross(third_dir,first_dir, dim=1)
+
+        # rotation_matrix = torch.stack([first_dir,second_dir,third_dir],2)
         
         ray_dir = (rotation_matrix @ ray_dir[...,None])[:,:,0]
         ray_dir = ray_dir / torch.linalg.norm(ray_dir, dim=-1, keepdim=True)

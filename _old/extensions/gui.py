@@ -91,8 +91,8 @@ class DemoApp(WispApp):
 
         self.trainer = trainer
 
-        self.widgets = self.create_widgets()        # Create gui widgets for this app
-        self.gizmos = self.create_gizmos()          # Create canvas widgets for this app
+        self.widgets = self.create_widgets()                            # Create gui widgets for this app
+        self.gizmos = self.create_gizmos() if plot_grid else {}         # Create canvas widgets for this app
         self.prim_painter = PrimitivesPainter()
 
         self.register_event_handlers()
@@ -156,7 +156,7 @@ class DemoApp(WispApp):
         # Decide which channels can be displayed over the canvas (channel names are NOT case sensitive).
         # See also wisp_state.graph.channels and wisp.core.channels.channels_starter_kit for configuring channels.
         # Options: Any subset of channel names defined in wisp_state.graph.channels
-        wisp_state.renderer.available_canvas_channels = ["RGB", "Depth", "Color_Feature"]
+        wisp_state.renderer.available_canvas_channels = ["RGB", "Depth"]#, "Color_Feature"]
         wisp_state.renderer.selected_canvas_channel = "RGB"  # Channel selected by default
 
         # Lens mode for camera used to view the canvas.

@@ -8,7 +8,7 @@ model_path=None
 ## Dataset
 dataset_path='datasets/lego/'
 aabb_scale=3
-mip=0
+mip=2
 multiview_dataset_format='standard'
 dataset_num_workers=-1
 num_samples=2048
@@ -49,7 +49,8 @@ prune_min_density= 1e-2
 steps_before_pruning = 1
 # others
 max_samples = 2**18 # size of the samples batch
-starting_density = 2e-2
+starting_density_bias = -2
+starting_density = 2e-2 # I was annoyed by the error in vscode, useless in the old version
 
 appearence_emb_dim = 5
 
@@ -60,7 +61,7 @@ starting_background = None
 
 ## Rendering
 rendering_threshold_density = 0.01
-render_radius = 1.25
+render_radius = 0.7
 render_batch = 4000
 
 ## Training

@@ -8,152 +8,34 @@ from tqdm import tqdm
 import random
 import pandas as pd
 import torch
-from torch.nn import functional as F
 from lpips import LPIPS
 from wisp.trainers import BaseTrainer, log_metric_to_wandb, log_images_to_wandb
 from wisp.ops.image import write_png, write_exr
 from wisp.ops.image.metrics import psnr, lpips, ssim
 from wisp.core import Rays, RenderBuffer
-from wisp.datasets import WispDataset, default_collate
 
 import wandb
 import numpy as np
 from PIL import Image
 
-from torch.profiler import profile, record_function, ProfilerActivity
-from torch.utils.data import DataLoader
-
-from extensions.chamfer_distance import chamfer_distance
-
 class Trainer(BaseTrainer):
 
     def __init__(self, pipeline, dataset, num_epochs, batch_size,
                  optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
-                 exp_name=None, info=None, scene_state=None, extra_args=None, validation_dataset = None,
+                 exp_name=None, info=None, scene_state=None, extra_args=None,
                  render_tb_every=-1, save_every=-1, trainer_mode='validate', using_wandb=False, 
-                 trans_mult = 1e-4, entropy_mult = 1e-1, empty_mult = 1e-3, mask_mult=1e-3, cameras_lr_weight=1e-2, empty_selectivity = 50, batch_accumulate = 1, profile=False):
-
-        self.cameras_lr_weight=cameras_lr_weight    
+                 trans_mult = 1e-4, entropy_mult = 1e-1, empty_mult = 1e-3, empty_selectivity = 50, batch_accumulate = 1):
         super().__init__(pipeline, dataset, num_epochs, batch_size,
                  optim_cls, lr, weight_decay, grid_lr_weight, optim_params, log_dir, device,
-                 exp_name=exp_name, info=info, scene_state=scene_state, extra_args=extra_args, validation_dataset=validation_dataset,
-                 render_tb_every=render_tb_every, save_every=save_every, trainer_mode=trainer_mode, using_wandb=using_wandb)
+                 exp_name, info, scene_state, extra_args,
+                 render_tb_every, save_every, trainer_mode, using_wandb)
 
         self.trans_mult = trans_mult
         self.entropy_mult = entropy_mult
         self.empty_mult = empty_mult
-        self.mask_mult = mask_mult
-        
         self.empty_sel = empty_selectivity
         self.batch_accumulate = batch_accumulate
-        self.extra_args = extra_args
-        self.initial_prune()
-
-    def initial_prune(self):
-        with torch.no_grad():
-            nef = self.pipeline.nef
-            used_points=torch.empty((0,3)).cuda()
-            res = 2**nef.grid.blas_level
-            for c_idx in range(len(nef.cameras.poses)):
-                batch_size = self.train_dataset.rays_per_sample
-                rays = nef.cameras.get_n_rays_of_cam(c_idx, batch_size)
-                raymarch_results = nef.grid.raymarch(rays,
-                                                level=nef.grid.active_lods[nef.grid.num_lods - 1],
-                                                num_samples=self.pipeline.tracer.num_steps,
-                                                raymarch_type=self.pipeline.tracer.raymarch_type)
-                samples = ((raymarch_results.samples+1)*res/2).floor().clip(0,res-1)
-                used_points = torch.concat([used_points,samples],0)
-                used_points = torch.unique(used_points,False,dim=0)
-                    
-            nef.grid.blas = nef.grid.blas.__class__.from_quantized_points(used_points.short(), nef.grid.blas_level)
-
-    def init_dataloader(self):
-        self.train_data_loader = DataLoader(self.train_dataset,
-                                            batch_size=self.batch_size,
-                                            collate_fn=default_collate,
-                                            shuffle=True, pin_memory=False,
-                                            num_workers=self.extra_args['dataloader_num_workers'])
-        self.train_data_loader_t = DataLoader(self.train_dataset,
-                                            batch_size=self.batch_size,
-                                            collate_fn=default_collate,
-                                            shuffle=True, pin_memory=False,
-                                            num_workers=self.extra_args['dataloader_num_workers'])
-        self.iterations_per_epoch = len(self.train_data_loader)
-
-    def reset_data_iterator(self):
-        """Rewind the iterator for the new epoch.
-        """
-        self.scene_state.optimization.iterations_per_epoch = len(self.train_data_loader)
-        self.train_data_loader_iter = iter(self.train_data_loader)
-        self.train_data_loader_iter_t = iter(self.train_data_loader_t)
-
-
-    def init_optimizer(self):
-        """Default initialization for the optimizer.
-        """
-
-        params_dict = { name : param for name, param in self.pipeline.nef.named_parameters()}
-        
-        params = []
-        decoder_params = []
-        grid_params = []
-        cameras_params = []
-        rest_params = []
-
-        for name in params_dict:
-            
-            if 'decoder' in name:
-                # If "decoder" is in the name, there's a good chance it is in fact a decoder,
-                # so use weight_decay
-                decoder_params.append(params_dict[name])
-
-            elif 'grid' in name:
-                # If "grid" is in the name, there's a good chance it is in fact a grid,
-                # so use grid_lr_weight
-                grid_params.append(params_dict[name])
-            
-            elif 'camera' in name:
-                cameras_params.append(params_dict[name])
-
-            else:
-                rest_params.append(params_dict[name])
-
-        params.append({"params" : decoder_params,
-                       "lr": self.lr, 
-                       "weight_decay": self.weight_decay})
-
-        params.append({"params" : grid_params,
-                       "lr": self.lr * self.grid_lr_weight})
-        
-        params.append({"params" : cameras_params,
-                       "lr": self.lr * self.cameras_lr_weight})
-        
-        params.append({"params" : rest_params,
-                       "lr": self.lr})
-
-        self.optimizer = self.optim_cls(params, **self.optim_params)
-
-
-    def train(self):
-        """
-        Override this if some very specific training procedure is needed.
-        """
-        if self.extra_args['profile']:
-            # pip install --upgrade torch-tb-profiler
-            with torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                                        with_stack = True,
-                                        record_shapes=True,
-                                        on_trace_ready=torch.profiler.tensorboard_trace_handler(os.path.join(self.log_dir, f'trace'))) as prof:
-                #with torch.autograd.profiler.emit_nvtx(enabled=self.extra_args["profile"]):
-                self.is_optimization_running = True
-                while self.is_optimization_running:
-                    self.iterate()
-            print(prof.key_averages(group_by_stack_n=10).table(sort_by='self_cpu_time_total', row_limit=10))
-        else:
-            self.is_optimization_running = True
-            while self.is_optimization_running:
-                self.iterate()
-
+    
     def pre_step(self):
         """Override pre_step to support pruning.
         """
@@ -170,80 +52,15 @@ class Trainer(BaseTrainer):
         self.log_dict['trans_loss'] = 0.0
         self.log_dict['entropy_loss'] = 0.0
         self.log_dict['empty_loss'] = 0.0
-        self.log_dict['pc_loss'] = 0.0
-        self.log_dict['depth_loss'] = 0.0
-        self.log_dict['mask_loss'] = 0.0
-
-    def arange_pixels(self, resolution=(128, 128), batch_size=1, image_range=(-1., 1.)):
-        h, w = resolution
-        
-        # Arrange pixel location in scale resolution
-        pixel_locations = torch.meshgrid(torch.arange(0, h, device=self.device), torch.arange(0, w, device=self.device))
-        pixel_locations = torch.stack(
-            [pixel_locations[1], pixel_locations[0]],
-            dim=-1).long().view(1, -1, 2).repeat(batch_size, 1, 1)
-        pixel_scaled = pixel_locations.clone().float()
-
-        # Shift and scale points to match image_range
-        scale = (image_range[1] - image_range[0])
-        loc = (image_range[1] - image_range[0])/ 2
-        pixel_scaled[:, :, 0] = scale * pixel_scaled[:, :, 0] / (w - 1) - loc
-        pixel_scaled[:, :, 1] = scale * pixel_scaled[:, :, 1] / (h - 1) - loc
-        return pixel_locations, pixel_scaled
-
-    def get_pc(self, data, pos_x, pos_y, idx):
-
-        rays = self.pipeline.nef.cameras.get_rays(idx, pos_x, pos_y)
-        alpha_depth = self.pipeline.nef.depth_trans[idx,0]
-        beta_depth = self.pipeline.nef.depth_trans[idx,1]
-        pc1 = rays.origins[None] + (alpha_depth[...,None] * data['depth'] + beta_depth[...,None])*rays.dirs
-        pc1 = pc1[(data['mask']>0).squeeze(2)]
-
-        data, pos_x, pos_y, idx = next(self.train_data_loader_iter_t)
-        pos_x=pos_x.reshape(-1)
-        pos_y=pos_y.reshape(-1)
-        idx=idx.reshape(-1)
-
-        rays = self.pipeline.nef.cameras.get_rays(idx, pos_x, pos_y)
-        alpha_depth = self.pipeline.nef.depth_trans[idx,0]
-        beta_depth = self.pipeline.nef.depth_trans[idx,1]
-        pc2 = rays.origins[None] + (alpha_depth[...,None] * data['depth'] + beta_depth[...,None])*rays.dirs
-        pc2 = pc2[(data['mask']>0).squeeze(2)]
-
-        return pc1, pc2
 
     def step(self, data):
         """Implement the optimization over image-space loss.
         """
 
         # Map to device
-        
-        point, pos_x, pos_y, idx = data
-
-        rgb = point['rgb']
-        if 'mask' in point.keys():
-            mask = point['mask']
-        if 'depth' in point.keys():
-            depth = point['depth']
-
-        rgb=rgb.reshape(-1,3)
-        if mask is not None:
-            mask=mask.reshape(-1)
-        if depth is not None:
-            depth=depth.reshape(-1)
-        pos_x=pos_x.reshape(-1)
-        pos_y=pos_y.reshape(-1)
-        idx=idx.reshape(-1)
-
-        # rgb = data['rgb'].reshape(-1,3).cuda()
-        # pos_x = data['pos_x'].reshape(-1).cuda()
-        # pos_y = data['pos_y'].reshape(-1).cuda()
-        # idx = data['idx'].reshape(-1).cuda()
-        rays = None
-
-        # rays = data['rays'].to(self.device).squeeze(0)
-        # img_gts = data['imgs'].to(self.device).squeeze(0)
-        # idx = data['idx']
+        rays = data['rays'].to(self.device).squeeze(0)
+        img_gts = data['imgs'].to(self.device).squeeze(0)
+        idx = data['idx']
             
         loss = 0
         
@@ -258,59 +75,33 @@ class Trainer(BaseTrainer):
             lod_idx = None
 
         with torch.cuda.amp.autocast():
-            # pc1, pc2 = self.get_pc(point, pos_x, pos_y, idx)
-            # dist1, dist2, _, _ = chamfer_distance(pc1[None], pc2[None])
-            # pc_loss = torch.mean(dist1) + torch.mean(dist2)
-
-            rb = self.pipeline(rays=rays, idx=idx, pos_x=pos_x, pos_y=pos_y, lod_idx=lod_idx, channels=["rgb", "depth"])
-
+            rb = self.pipeline(rays=rays, idx=idx, lod_idx=lod_idx, channels=["rgb"])
 
             l1=0.01
-            rgb_loss = torch.square((rb.rgb[..., :3] - rgb[..., :3])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach())*rb.hit[:,None]).mean()
-            
+            rgb_loss = torch.square((rb.rgb[..., :3] - img_gts[..., :3])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach())).mean()
 
-            #alpha_depth = self.pipeline.nef.depth_trans[idx,0]*100
-            #beta_depth = self.pipeline.nef.depth_trans[idx,1]*100
+            trans_loss = -torch.log((1-rb.alpha_t)*(1-1e-5)).mean()
 
-            #depth_loss = torch.mean(torch.abs(rb.depth.squeeze(1) - (alpha_depth * depth + beta_depth)*mask - 10*(1-mask))*(1-l1*rb.alpha_t.squeeze(1)-(1-l1)*rb.alpha_t.squeeze(1).detach())*rb.hit)
+            d = 1-torch.exp(-(rb.density))
+            entropy_loss = (-d*torch.log(d+1e-7)).sum()/len(rays)/self.pipeline.tracer.num_steps # -(1-d)*torch.log(1-d+1e-7)
 
-            if mask is not None:
-                mask_loss = torch.mean(  (rb.alpha.squeeze(1)*rb.hit*(1 - mask))  +   (1-rb.alpha_t.squeeze(1)*(1 - mask))  + (1-rb.alpha.squeeze(1)*rb.hit)*(1-rb.alpha_t.squeeze(1))*(mask)  )
-            
-            trans_loss = (-torch.log((1-rb.alpha_t)+1e-7)).mean()
-
-            
-
-            #d = 1-torch.exp(-(rb.density))
-            #entropy_loss = (-d*torch.log(d+1e-7)).sum()/len(rgb)/self.pipeline.tracer.num_steps # -(1-d)*torch.log(1-d+1e-7)
-
-            #empty_loss = (rb.alpha * torch.exp( -self.empty_sel*torch.sum(torch.square(rgb[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()).mean()
+            empty_loss = (rb.alpha * torch.exp( -self.empty_sel*torch.sum(torch.square(img_gts[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()).mean()
 
             loss += rgb_loss # self.extra_args["rgb_loss"] *
-            
-            if mask is not None:
-                loss += mask_loss * self.mask_mult
-                self.log_dict['mask_loss'] += mask_loss.item()
-
-            #loss += pc_loss*1e-1
-            #loss += depth_loss*0
             loss += self.trans_mult * trans_loss
-            #loss += self.entropy_mult * entropy_loss
-            #loss += self.empty_mult * empty_loss
-            
+            loss += self.entropy_mult * entropy_loss
+            loss += self.empty_mult * empty_loss
+
             self.log_dict['rgb_loss'] += rgb_loss.item()
             self.log_dict['trans_loss'] += trans_loss.item()
-            #self.log_dict['entropy_loss'] += entropy_loss.item()
-            #self.log_dict['empty_loss'] += empty_loss.item()
-            #self.log_dict['depth_loss'] += depth_loss.item()
-            #self.log_dict['pc_loss'] += pc_loss.item()
+            self.log_dict['entropy_loss'] += entropy_loss.item()
+            self.log_dict['empty_loss'] += empty_loss.item()
 
         print(f" {self.iteration}/{self.iterations_per_epoch}  ".rjust(10),
             f"rgb_loss: {self.log_dict['rgb_loss']/self.iteration:.3e}   ",
             f"trans_loss: {self.log_dict['trans_loss']/self.iteration:.3e}   ",
-            f"depth_loss: {self.log_dict['depth_loss']/self.iteration:.3e}   ",
-            
-            #f"pc_loss: {self.log_dict['pc_loss']/self.iteration:.3e}   ", 
+            f"entropy_loss: {self.log_dict['entropy_loss']/self.iteration:.3e}   ",
+            f"empty_loss: {self.log_dict['empty_loss']/self.iteration:.3e}   ", 
             end="\r")
 
         self.log_dict['total_loss'] += loss.item()
@@ -373,21 +164,17 @@ class Trainer(BaseTrainer):
         log.info(log_text)
  
         return {"psnr" : psnr_total, "lpips": lpips_total, "ssim": ssim_total}
-
-
+    
+    
     def render_tb(self):
         """
         Override this function to change render logging to TensorBoard / Wandb.
         """
         self.pipeline.eval()
-        angles = np.pi * 0.1 * np.array(list(range(self.extra_args["num_angles"])))
-        x = -self.extra_args["camera_distance"] * np.sin(angles)
-        y = self.extra_args["camera_origin"][1]
-        z = -self.extra_args["camera_distance"] * np.cos(angles)
-        for d in [self.extra_args["num_lods"] - 1]:
-            for idx in tqdm(range(self.extra_args["num_angles"]), desc=f"Generating 360 Degree of View for LOD {d}"):
+        for camera_origin in self.extra_args["camera_origin"]:
+            for d in [self.extra_args["num_lods"] - 1]:
                 out = self.renderer.shade_images(self.pipeline,
-                                                f=[x[idx], y, z[idx]],
+                                                f=camera_origin,
                                                 t=self.extra_args["camera_lookat"],
                                                 fov=self.extra_args["camera_fov"],
                                                 lod_idx=d,
@@ -404,10 +191,10 @@ class Trainer(BaseTrainer):
 
                 for key in log_buffers:
                     if out.get(key) is not None:
-                        self.writer.add_image(f'{key}/{d}/{idx}', out[key].T, self.epoch)
+                        self.writer.add_image(f'{key}/{camera_origin}/{d}', out[key].T, self.epoch)
                         if self.using_wandb:
-                            log_images_to_wandb(f'{key}/{d}/{idx}', out[key].T, self.epoch)
-
+                            log_images_to_wandb(f'{key}/{camera_origin}/{d}', out[key].T, self.epoch)
+                            
 
     def render_final_view(self, num_angles, camera_distance):
         angles = np.pi * 0.1 * np.array(list(range(num_angles + 1)))

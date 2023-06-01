@@ -15,8 +15,6 @@ import time
 
 from extensions.raytrace import exponential_integration
 
-from wisp.ops.raygen import generate_pinhole_rays
-
 class Tracer(BaseTracer):
     """Tracer class for sparse (packed) radiance fields.
     - Packed: each ray yields a custom number of samples, which are therefore packed in a flat form within a tensor,
@@ -70,7 +68,7 @@ class Tracer(BaseTracer):
         """
         return {"rgb", "density"}
 
-    def forward(self, nef, rays: Rays, idx=None, pos_x=None, pos_y=None, channels=None, **kwargs):
+    def forward(self, nef, rays: Rays, idx=None, channels=None, **kwargs):
         """Queries the tracer with channels.
 
         Args:
@@ -110,7 +108,7 @@ class Tracer(BaseTracer):
         argspec = inspect.getfullargspec(self.trace)
 
         # Skip self, nef, rays, channel, extra_channels
-        required_args = argspec.args[:-len(argspec.defaults)][8:]   # TODO (operel): this is brittle
+        required_args = argspec.args[:-len(argspec.defaults)][6:]   # TODO (operel): this is brittle
         optional_args = argspec.args[-len(argspec.defaults):]
         
         input_args = {}
@@ -128,11 +126,11 @@ class Tracer(BaseTracer):
                 default_arg = getattr(self, _arg, None)
                 if default_arg is not None:
                     input_args[_arg] = default_arg
-        return self.trace(nef, rays, idx, pos_x, pos_y, requested_channels, requested_extra_channels, **input_args)
+        return self.trace(nef, rays, idx, requested_channels, requested_extra_channels, **input_args)
 
 
 
-    def trace(self, nef, rays, idx, pos_x, pos_y, channels, extra_channels,
+    def trace(self, nef, rays, idx, channels, extra_channels,
         lod_idx=None, raymarch_type='voxel', num_steps=64, step_size=1.0, bg_color='white'):
         """Trace the rays against the neural field.
 
@@ -155,17 +153,10 @@ class Tracer(BaseTracer):
         Returns:
             (wisp.RenderBuffer): A dataclass which holds the output buffers from the render.
         """
-
-        if rays is not None:
-            N = rays.origins.shape[0]
-        else:
-            N = len(idx)
-            #rays= [generate_pinhole_rays(nef.cameras[list(nef.cameras)[index]], (pos_x,pos_y)) for index in idx]
-            #rays= Rays.stack(rays).to(dtype=torch.float).reshape(-1, 3)
-            rays = nef.cameras.get_rays(idx, pos_x, pos_y)
-
         #TODO(ttakikawa): Use a more robust method
         assert nef.grid is not None and "this tracer requires a grid"
+
+        N = rays.origins.shape[0]
         
         if "depth" in channels:
             depth = torch.zeros(N, 1, device=rays.origins.device)
@@ -183,7 +174,6 @@ class Tracer(BaseTracer):
         if lod_idx is None:
             lod_idx = nef.grid.num_lods - 1
 
-        
         # By default, PackedRFTracer will attempt to use the highest level of detail for the ray sampling.
         # This however may not actually do anything; the ray sampling behaviours are often single-LOD
         # and is governed by however the underlying feature grid class uses the BLAS to implement the sampling.
@@ -205,7 +195,7 @@ class Tracer(BaseTracer):
         # Compute the color and density for each ray and their samples
         num_samples = samples.shape[0]
 
-        color, density = nef(coords=samples, ray_d=hit_ray_d, idx = idx[ridx] if torch.is_tensor(idx) else idx, lod_idx=lod_idx, channels=["rgb", "density"])
+        color, density = nef(coords=samples, ray_d=hit_ray_d, idx = idx, lod_idx=lod_idx, channels=["rgb", "density"])
 
         if idx is None:
             density = density * (density >= self.rendering_threshold_density)
@@ -225,13 +215,13 @@ class Tracer(BaseTracer):
         # else: # gui
         ray_colors, transmittance = spc_render.exponential_integration(color, tau, boundary, exclusive=True)
 
+        if "depth" in channels:
+            ray_depth = spc_render.sum_reduce(depths.reshape(num_samples, 1) * transmittance, boundary)
+            depth[ridx_hit, :] = ray_depth
+
         alpha = spc_render.sum_reduce(transmittance, boundary)
         out_alpha[ridx_hit] = alpha
         hit[ridx_hit] = alpha[...,0] > 0.0
-
-        if "depth" in channels:
-            ray_depth = spc_render.sum_reduce(depths.reshape(num_samples, 1) * transmittance, boundary)
-            depth[ridx_hit, :] = ray_depth + 10*(1-alpha)
 
         # Populate the background
         # if bg_color == 'white':
@@ -243,7 +233,7 @@ class Tracer(BaseTracer):
         rgb[ridx_hit] = color
 
         if idx is not None: # use transients
-            alpha_t = nef.sample_t(ray_d=rays.dirs, idx=idx, pos_x=pos_x, pos_y=pos_y)
+            alpha_t = nef.sample_t(ray_d=rays.dirs, idx=idx)
             extra_outputs = {'density': density, 'alpha_t': alpha_t}
         else:
             extra_outputs = {}

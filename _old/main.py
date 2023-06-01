@@ -15,7 +15,6 @@ import numpy as np
 from wisp.app_utils import default_log_setup, args_to_log_format
 from wisp.framework import WispState
 from wisp.datasets import MultiviewDataset
-from wisp.datasets.formats.nerf_standard_dataset import NeRFSyntheticDataset
 from wisp.datasets.transforms import SampleRays
 from wisp.trainers import MultiviewTrainer
 from wisp.models.grids import OctreeGrid, HashGrid
@@ -26,6 +25,7 @@ from wisp.tracers import PackedRFTracer
 from extensions.trainer import Trainer
 from extensions.tracer import Tracer
 from extensions.nef import Nef
+from extensions.gui import DemoApp
 
 
 from utils.default_params import *
@@ -43,28 +43,22 @@ else:
     try:
         exec('from launch_params import *')
     except Exception as e:
-        pass
+        raise
 
 default_log_setup(level=logging.INFO)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-from extensions.dataset import DatasetLoader, MyDataset, NeRFSyntheticDataset
+from new.extensions.dataset1 import DatasetLoader, MyDataset
 loader = DatasetLoader()
-data = loader.load(dataset_path, mip=mip, with_mask=True, with_depth=True, dataset_num_workers=dataset_num_workers)
-# train_dataset = NeRFSyntheticDataset(dataset_path, 
-#                                    mip=4, 
-#                                    dataset_num_workers=dataset_num_workers,
-#                                    split='train',
-#                                    bg_color='black',
-#                                    num_samples=num_samples)
+data = loader.load(dataset_path, mip=mip, dataset_num_workers=dataset_num_workers)
 
-#inp_data = torch.cat((data['rgb'], data['masks'], data['depths']), dim=-1)
-train_dataset = MyDataset(data['rgb'], mask=data['masks'], depth=data['depths'], rays_per_sample=num_samples)
+train_dataset = MyDataset(data['rgb'], rays_per_sample=2**12)
 
-from extensions.cameras import Cameras
+from new.extensions.cameras import Cameras
 
-cams = Cameras(**data['cameras'], trainable=False)
+cams = Cameras(**data['cameras'])
 
+print(data['cameras'].keys())
 
 #input()
 
@@ -86,31 +80,21 @@ grid = HashGrid.from_geometric(feature_dim=feature_dim,
                                max_grid_res=max_grid_res,
                                blas_level=blas_level)
 
-
-if trans_type == "tensor":
-    grid_t = torch.ones_like(data['masks'])*(-1)
-elif trans_type == "hashgrid":
-    grid_t = HashGrid.from_geometric(feature_dim=t_feature_dim,
-                                    num_lods=t_num_lods,
-                                    multiscale_type=t_multiscale_type,
-                                    codebook_bitwidth=t_codebook_bitwidth,
-                                    min_grid_res=t_min_grid_res,
-                                    max_grid_res=t_max_grid_res,
-                                    blas_level=0).cuda()
-else:
-    grid_t = None
+grid_t=HashGrid.from_geometric(feature_dim=t_feature_dim,
+                                num_lods=t_num_lods,
+                                multiscale_type=t_multiscale_type,
+                                codebook_bitwidth=t_codebook_bitwidth,
+                                min_grid_res=t_min_grid_res,
+                                max_grid_res=t_max_grid_res,
+                                blas_level=0).cuda()
 
 
 appearence_emb=torch.randn(len(train_dataset), appearence_emb_dim, device='cuda')*0.01
-depth_trans = torch.zeros((len(train_dataset), 2), device='cuda')
-depth_trans[:,0] = 1/100
 
 from wisp.models.nefs import NeuralRadianceField
 nerf =  Nef(grid=grid,
             grid_t=grid_t,
-            cameras=cams,
             appearence_embedding=appearence_emb,
-            depth_trans=depth_trans,
             view_embedder=view_embedder,
             view_multires=view_multires,
             direction_input=direction_input,
@@ -121,7 +105,7 @@ nerf =  Nef(grid=grid,
             max_samples = max_samples,
             trainable_background = trainable_background,
             starting_background=starting_background,
-            starting_density = starting_density,
+            starting_density_bias = starting_density_bias,
             render_radius = render_radius
             )
 
@@ -145,13 +129,12 @@ scene_state = WispState()
 trainer = Trainer(pipeline=pipeline,
                 dataset=train_dataset, #train_dataset
                 num_epochs=epochs,
-                batch_size=1,           # 1 image per batch
+                batch_size=batch_size,           # 1 image per batch
                 batch_accumulate=batch_accumulate,
                 optim_cls=torch.optim.Adam,
                 lr=lr,
                 weight_decay=weight_decay,     # Weight decay, applied only to decoder weights.
                 grid_lr_weight=100.0, # Relative learning rate weighting applied only for the grid parameters
-                cameras_lr_weight=cameras_lr_weight,
                 optim_params=dict(lr=lr, weight_decay=weight_decay, betas=(0.9, 0.99), eps=1e-15),
                 log_dir=log_dir,
                 device=device,
@@ -160,7 +143,7 @@ trainer = Trainer(pipeline=pipeline,
                 extra_args=dict(  # TODO (operel): these should be optional..
                     dataset_path=dataset_path,
                     dataloader_num_workers=0,
-                    num_lods=num_lods,
+                    num_lods=4,
                     grow_every=-1,
                     only_last=False,
                     resample=False,
@@ -172,15 +155,12 @@ trainer = Trainer(pipeline=pipeline,
                     camera_lookat=camera_lookat,
                     camera_fov=camera_fov,
                     camera_clamp=[0, 10],
-                    render_batch=render_batch,
+                    render_batch = render_batch,
                     bg_color='black',
                     valid_every=-1,
                     save_as_new=False,
                     model_format='full',
-                    mip=1,
-                    profile=False,
-                    camera_distance=camera_distance,
-                    num_angles=num_angles
+                    mip=1
                 ),
                 render_tb_every=render_tb_every,
                 save_every=save_every,
@@ -190,14 +170,12 @@ trainer = Trainer(pipeline=pipeline,
                 trans_mult = trans_mult, 
                 entropy_mult = entropy_mult, 
                 empty_mult = empty_mult, 
-                mask_mult=mask_mult,
                 empty_selectivity = empty_selectivity)
 
 torch.cuda.empty_cache()
 
 #is_gui_mode = os.environ.get('WISP_HEADLESS') != '1'
 if is_gui_mode: # is_gui_mode:
-    from extensions.gui import DemoApp
     scene_state.renderer.device = trainer.device  # Use same device for trainer and app renderer
     app = DemoApp(wisp_state=scene_state, background_task=trainer.iterate, trainer=trainer, window_name=exp_name, plot_grid=plot_grid) #trainer.iterate
     app.run()  # Interactive Mode runs here indefinitely

@@ -1,0 +1,5 @@
+{
+    "C_Cpp.default.systemIncludePath": [
+        "C:\\Users\\Sam\\miniconda3\\envs\\wisp\\Lib\\site-packages\\torch\\include"
+    ]
+}

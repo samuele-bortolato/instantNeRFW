@@ -1,7 +1,0 @@
-setup.py
-spc.cpp
-spc_cuda.cu
-spc.egg-info/PKG-INFO
-spc.egg-info/SOURCES.txt
-spc.egg-info/dependency_links.txt
-spc.egg-info/top_level.txt

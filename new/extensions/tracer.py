@@ -225,13 +225,13 @@ class Tracer(BaseTracer):
         # else: # gui
         ray_colors, transmittance = spc_render.exponential_integration(color, tau, boundary, exclusive=True)
 
-        if "depth" in channels:
-            ray_depth = spc_render.sum_reduce(depths.reshape(num_samples, 1) * transmittance, boundary)
-            depth[ridx_hit, :] = ray_depth
-
         alpha = spc_render.sum_reduce(transmittance, boundary)
         out_alpha[ridx_hit] = alpha
         hit[ridx_hit] = alpha[...,0] > 0.0
+
+        if "depth" in channels:
+            ray_depth = spc_render.sum_reduce(depths.reshape(num_samples, 1) * transmittance, boundary)
+            depth[ridx_hit, :] = ray_depth + 10*(1-alpha)
 
         # Populate the background
         # if bg_color == 'white':

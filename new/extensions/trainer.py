@@ -172,6 +172,7 @@ class Trainer(BaseTrainer):
         self.log_dict['empty_loss'] = 0.0
         self.log_dict['pc_loss'] = 0.0
         self.log_dict['depth_loss'] = 0.0
+        self.log_dict['mask_loss'] = 0.0
 
     def arange_pixels(self, resolution=(128, 128), batch_size=1, image_range=(-1., 1.)):
         h, w = resolution
@@ -209,7 +210,7 @@ class Trainer(BaseTrainer):
         pc2 = rays.origins[None] + (alpha_depth[...,None] * data['depth'] + beta_depth[...,None])*rays.dirs
         pc2 = pc2[(data['mask']>0).squeeze(2)]
 
-        return pc1, pc2 
+        return pc1, pc2
 
     def step(self, data):
         """Implement the optimization over image-space loss.
@@ -257,56 +258,59 @@ class Trainer(BaseTrainer):
             lod_idx = None
 
         with torch.cuda.amp.autocast():
-            pc1, pc2 = self.get_pc(point, pos_x, pos_y, idx)
-            dist1, dist2, _, _ = chamfer_distance(pc1[None], pc2[None])
-            pc_loss = torch.mean(dist1) + torch.mean(dist2)
+            # pc1, pc2 = self.get_pc(point, pos_x, pos_y, idx)
+            # dist1, dist2, _, _ = chamfer_distance(pc1[None], pc2[None])
+            # pc_loss = torch.mean(dist1) + torch.mean(dist2)
 
             rb = self.pipeline(rays=rays, idx=idx, pos_x=pos_x, pos_y=pos_y, lod_idx=lod_idx, channels=["rgb", "depth"])
 
 
             l1=0.01
-            rgb_loss = torch.square((rb.rgb[..., :3] - rgb[..., :3])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach())).mean()
+            rgb_loss = torch.square((rb.rgb[..., :3] - rgb[..., :3])*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach())*rb.hit[:,None]).mean()
+            
 
-            alpha_depth = self.pipeline.nef.depth_trans[idx,0]
-            beta_depth = self.pipeline.nef.depth_trans[idx,1]
+            #alpha_depth = self.pipeline.nef.depth_trans[idx,0]*100
+            #beta_depth = self.pipeline.nef.depth_trans[idx,1]*100
 
-            depth_loss = torch.mean(torch.abs(alpha_depth*rb.depth + beta_depth)*(1-l1*rb.alpha_t-(1-l1)*rb.alpha_t.detach()))
+            #depth_loss = torch.mean(torch.abs(rb.depth.squeeze(1) - (alpha_depth * depth + beta_depth)*mask - 10*(1-mask))*(1-l1*rb.alpha_t.squeeze(1)-(1-l1)*rb.alpha_t.squeeze(1).detach())*rb.hit)
 
             if mask is not None:
-                mask_loss = torch.mean(  (rb.alpha*(1 - mask)) + (1-rb.alpha)*(1-rb.alpha_t)*(mask)  )
+                mask_loss = torch.mean(  (rb.alpha.squeeze(1)*rb.hit*(1 - mask))  +   (1-rb.alpha_t.squeeze(1)*(1 - mask))  + (1-rb.alpha.squeeze(1)*rb.hit)*(1-rb.alpha_t.squeeze(1))*(mask)  )
             
-            trans_loss = -torch.log((1-rb.alpha_t)+1e-7).mean()
+            trans_loss = (-torch.log((1-rb.alpha_t)+1e-7)).mean()
 
             
 
-            d = 1-torch.exp(-(rb.density))
-            entropy_loss = (-d*torch.log(d+1e-7)).sum()/len(rgb)/self.pipeline.tracer.num_steps # -(1-d)*torch.log(1-d+1e-7)
+            #d = 1-torch.exp(-(rb.density))
+            #entropy_loss = (-d*torch.log(d+1e-7)).sum()/len(rgb)/self.pipeline.tracer.num_steps # -(1-d)*torch.log(1-d+1e-7)
 
-            empty_loss = (rb.alpha * torch.exp( -self.empty_sel*torch.sum(torch.square(rgb[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()).mean()
+            #empty_loss = (rb.alpha * torch.exp( -self.empty_sel*torch.sum(torch.square(rgb[..., :3] - torch.sigmoid(100*self.pipeline.nef.backgroud_color)),-1,keepdim=True)).detach()).mean()
 
             loss += rgb_loss # self.extra_args["rgb_loss"] *
             
             if mask is not None:
                 loss += mask_loss * self.mask_mult
+                self.log_dict['mask_loss'] += mask_loss.item()
 
-            loss += pc_loss*1e-1
-            loss += depth_loss*1e-3
+            #loss += pc_loss*1e-1
+            #loss += depth_loss*0
             loss += self.trans_mult * trans_loss
-            loss += self.entropy_mult * entropy_loss
-            loss += self.empty_mult * empty_loss
-
+            #loss += self.entropy_mult * entropy_loss
+            #loss += self.empty_mult * empty_loss
+            
             self.log_dict['rgb_loss'] += rgb_loss.item()
             self.log_dict['trans_loss'] += trans_loss.item()
-            self.log_dict['entropy_loss'] += entropy_loss.item()
-            self.log_dict['empty_loss'] += empty_loss.item()
-            self.log_dict['depth_loss'] += depth_loss.item()
-            self.log_dict['pc_loss'] += pc_loss.item()
+            #self.log_dict['entropy_loss'] += entropy_loss.item()
+            #self.log_dict['empty_loss'] += empty_loss.item()
+            #self.log_dict['depth_loss'] += depth_loss.item()
+            #self.log_dict['pc_loss'] += pc_loss.item()
 
         print(f" {self.iteration}/{self.iterations_per_epoch}  ".rjust(10),
             f"rgb_loss: {self.log_dict['rgb_loss']/self.iteration:.3e}   ",
             f"trans_loss: {self.log_dict['trans_loss']/self.iteration:.3e}   ",
             f"depth_loss: {self.log_dict['depth_loss']/self.iteration:.3e}   ",
-            f"pc_loss: {self.log_dict['pc_loss']/self.iteration:.3e}   ", 
+            
+            #f"pc_loss: {self.log_dict['pc_loss']/self.iteration:.3e}   ", 
             end="\r")
 
         self.log_dict['total_loss'] += loss.item()

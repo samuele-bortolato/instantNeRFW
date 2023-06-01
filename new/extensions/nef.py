@@ -197,30 +197,29 @@ class Nef(BaseNeuralField):
 
 
     def prune(self):
-        
-        if self.grid is not None:
-            if isinstance(self.grid, HashGrid):
-                with torch.no_grad():
-                    density_decay = self.prune_density_decay
-                    min_density = self.prune_min_density
+        if self.steps_before_pruning>0:
+            self.steps_before_pruning -= 1
+        else:
+            if self.grid is not None:
+                if isinstance(self.grid, HashGrid):
+                    with torch.no_grad():
+                        density_decay = self.prune_density_decay
+                        min_density = self.prune_min_density
 
-                    self.grid.occupancy = self.grid.occupancy.cuda()
-                    self.grid.occupancy = self.grid.occupancy * density_decay
-                    #points = self.grid.dense_points.cuda()
-                    max_level, pyramids, exsum = spc.scan_octrees(self.grid.blas.octree, torch.tensor(len(self.grid.blas.octree))[None])
-                    points = spc.generate_points(self.grid.blas.octree, pyramids, exsum)[pyramids[0,1,max_level]:]
-                    res = 2**self.grid.blas_level
-                    sample_points = torch.rand(points.shape[0], 3, device=points.device)
-                    sample_points = points.float() + sample_points*1.4 - 0.2
-                    samples = sample_points / res
-                    samples = samples * 2.0 - 1.0
-                    sample_views = torch.FloatTensor(sample_unif_sphere(samples.shape[0])).to(points.device)
-                    density = self.forward(coords=samples, idx=0, ray_d=sample_views, channels="density")
-                    sample_points=sample_points.floor_().clip(0,res-1).long()
-                    self.grid.occupancy[sample_points[:,0],sample_points[:,1],sample_points[:,2]] = torch.stack([density[:, 0], self.grid.occupancy[sample_points[:,0],sample_points[:,1],sample_points[:,2]]], -1).max(dim=-1)[0]
-                    if self.steps_before_pruning > 0:
-                        self.steps_before_pruning -= 1
-                    else:
+                        self.grid.occupancy = self.grid.occupancy.cuda()
+                        self.grid.occupancy = self.grid.occupancy * density_decay
+                        #points = self.grid.dense_points.cuda()
+                        max_level, pyramids, exsum = spc.scan_octrees(self.grid.blas.octree, torch.tensor(len(self.grid.blas.octree))[None])
+                        points = spc.generate_points(self.grid.blas.octree, pyramids, exsum)[pyramids[0,1,max_level]:]
+                        res = 2**self.grid.blas_level
+                        sample_points = torch.rand(points.shape[0], 3, device=points.device)
+                        sample_points = points.float() + sample_points*1.4 - 0.2
+                        samples = sample_points / res
+                        samples = samples * 2.0 - 1.0
+                        sample_views = torch.FloatTensor(sample_unif_sphere(samples.shape[0])).to(points.device)
+                        density = self.forward(coords=samples, idx=0, ray_d=sample_views, channels="density")
+                        sample_points=sample_points.floor_().clip(0,res-1).long()
+                        self.grid.occupancy[sample_points[:,0],sample_points[:,1],sample_points[:,2]] = torch.stack([density[:, 0], self.grid.occupancy[sample_points[:,0],sample_points[:,1],sample_points[:,2]]], -1).max(dim=-1)[0]
                         
                         _points = torch.nonzero(self.grid.occupancy > min_density)
 
@@ -232,8 +231,8 @@ class Nef(BaseNeuralField):
                         else:
                             raise Exception(f"The BLAS {self.grid.blas.__class__.__name__} does not support initialization " 
                                             "from_quantized_points, which is required for pruning.")
-            else:
-                raise NotImplementedError(f'Pruning not implemented for grid type {self.grid}')
+                else:
+                    raise NotImplementedError(f'Pruning not implemented for grid type {self.grid}')
 
 
     def forward(self, channels=None, **kwargs):

@@ -8,6 +8,7 @@
 
 import inspect
 import torch
+import math
 from typing import Dict, Any, List
 from wisp.ops.geometric import sample_unif_sphere
 from wisp.models.nefs import BaseNeuralField
@@ -108,7 +109,7 @@ class Nef(BaseNeuralField):
         super().__init__()
         self.grid = grid
         if isinstance(grid_t, torch.Tensor):
-            self.grid_t = torch.nn.parameter.Parameter(grid_t)
+            self.grid_t = torch.nn.parameter.Parameter(grid_t/10)
         else:
             self.grid_t = grid_t
         self.grid.occupancy=torch.ones_like(self.grid.occupancy)*prune_min_density/prune_density_decay
@@ -321,14 +322,14 @@ class Nef(BaseNeuralField):
             transient = self.decoder_transient(feats_t)
 
         else:
-            transient = self.grid_t[idx, pos_y.floor().long(), pos_x.floor().long()].to(pos_x.device)
+            transient = self.grid_t[idx, pos_y.floor().long(), pos_x.floor().long()].to(pos_x.device)*10
 
         a_t = torch.sigmoid(transient[...,0:1])
 
         return a_t
 
 
-    def sample(self, coords, ray_d=None, idx=None, lod_idx=None, channels=None):
+    def sample(self, coords, ray_d=None, idx=None, lod_idx=None, channels=None, percentage=None):
         """Compute color and density [particles / vol] for the provided coordinates.
 
         Args:
@@ -373,6 +374,15 @@ class Nef(BaseNeuralField):
 
                 # Embed coordinates into high-dimensional vectors with the grid.
                 feats = self.grid.interpolate(batch_coords, lod_idx).reshape(batch, self.effective_feature_dim())
+
+                if percentage is not None:
+                    
+                    weights = torch.zeros(self.grid.num_lods*self.grid.feature_dim, dtype=feats.dtype, device=feats.device, requires_grad=False)
+                    i = int(math.floor(percentage*self.grid.num_lods))*self.grid.feature_dim
+                    weights[ : i] = 1
+                    weights[i : i+self.grid.feature_dim] = (percentage * self.grid.num_lods ) % 1
+                    feats = feats * weights[None]
+                
 
                 # Optionally concat the positions to the embedding
                 if self.pos_embedder is not None:

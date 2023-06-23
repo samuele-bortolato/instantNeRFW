@@ -133,7 +133,7 @@ class Tracer(BaseTracer):
 
 
     def trace(self, nef, rays, idx, pos_x, pos_y, channels, extra_channels,
-        lod_idx=None, raymarch_type='voxel', num_steps=64, step_size=1.0, bg_color='white'):
+        lod_idx=None, raymarch_type='voxel', num_steps=64, step_size=1.0, bg_color='white', percentage=None):
         """Trace the rays against the neural field.
 
         Args:
@@ -205,7 +205,7 @@ class Tracer(BaseTracer):
         # Compute the color and density for each ray and their samples
         num_samples = samples.shape[0]
 
-        color, density = nef(coords=samples, ray_d=hit_ray_d, idx = idx[ridx] if torch.is_tensor(idx) else idx, lod_idx=lod_idx, channels=["rgb", "density"])
+        color, density = nef(coords=samples, ray_d=hit_ray_d, idx = idx[ridx] if torch.is_tensor(idx) else idx, lod_idx=lod_idx, channels=["rgb", "density"], percentage=percentage)
 
         if idx is None:
             density = density * (density >= self.rendering_threshold_density)

@@ -15,7 +15,7 @@ num_samples=2048
 
 ## Grid
 feature_dim=2
-num_lods=16
+num_lods=4
 multiscale_type='cat'
 codebook_bitwidth=20
 min_grid_res=16
@@ -70,6 +70,8 @@ batch_accumulate = 4
 lr = 1e-3
 weight_decay=0      # Weight decay, applied only to decoder weights.
 grid_lr_weight = 100.0 # Relative learning rate weighting applied only for the grid parameters
+
+trainable_cameras=False
 cameras_lr_weight = 1e-3
 
 trans_mult = 1e-4 
@@ -82,7 +84,6 @@ empty_selectivity = 50
 camera_origin = [1.25, 1.25, 1.25]  
 camera_lookat = [0, 0, 0]
 camera_fov=30
-num_lods=4
 num_angles=1
 camera_distance=2
 render_tb_every=10 # tensorboard

@@ -48,9 +48,9 @@ else:
 default_log_setup(level=logging.INFO)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-from extensions.dataset import DatasetLoader, MyDataset, NeRFSyntheticDataset
+from extensions.dataset import DatasetLoader, MyDataset
 loader = DatasetLoader()
-data = loader.load(dataset_path, mip=mip, with_mask=True, with_depth=True, dataset_num_workers=dataset_num_workers)
+data = loader.load(dataset_path, mip=mip, with_mask=True, with_mask_hands=False, with_depth=False, dataset_num_workers=dataset_num_workers)
 # train_dataset = NeRFSyntheticDataset(dataset_path, 
 #                                    mip=4, 
 #                                    dataset_num_workers=dataset_num_workers,
@@ -59,11 +59,11 @@ data = loader.load(dataset_path, mip=mip, with_mask=True, with_depth=True, datas
 #                                    num_samples=num_samples)
 
 #inp_data = torch.cat((data['rgb'], data['masks'], data['depths']), dim=-1)
-train_dataset = MyDataset(data['rgb'], mask=data['masks'], depth=data['depths'], rays_per_sample=num_samples)
+train_dataset = MyDataset(data['rgb'], mask=data['masks'], mask_hands=data['masks_hands'], depth=data['depths'], rays_per_sample=num_samples)
 
 from extensions.cameras import Cameras
 
-cams = Cameras(**data['cameras'], trainable=False)
+cams = Cameras(**data['cameras'], trainable=trainable_cameras)
 
 
 #input()
@@ -88,7 +88,7 @@ grid = HashGrid.from_geometric(feature_dim=feature_dim,
 
 
 if trans_type == "tensor":
-    grid_t = torch.ones_like(data['masks'])*(-1)
+    grid_t = torch.ones_like(data['masks']) # (data['masks']-0.5)*(-1) #
 elif trans_type == "hashgrid":
     grid_t = HashGrid.from_geometric(feature_dim=t_feature_dim,
                                     num_lods=t_num_lods,

@@ -9,6 +9,7 @@ import random
 import pandas as pd
 import torch
 from torch.nn import functional as F
+import math
 from lpips import LPIPS
 from wisp.trainers import BaseTrainer, log_metric_to_wandb, log_images_to_wandb
 from wisp.ops.image import write_png, write_exr
@@ -223,6 +224,8 @@ class Trainer(BaseTrainer):
         rgb = point['rgb']
         if 'mask' in point.keys():
             mask = point['mask']
+        if 'mask_hands' in point.keys():
+            mask_hands = point['mask_hands']
         if 'depth' in point.keys():
             depth = point['depth']
 
@@ -262,7 +265,12 @@ class Trainer(BaseTrainer):
             # dist1, dist2, _, _ = chamfer_distance(pc1[None], pc2[None])
             # pc_loss = torch.mean(dist1) + torch.mean(dist2)
 
-            rb = self.pipeline(rays=rays, idx=idx, pos_x=pos_x, pos_y=pos_y, lod_idx=lod_idx, channels=["rgb", "depth"])
+            a = 5.
+            percentage = self.total_iterations / self.max_iterations
+            percentage = (1-math.exp(-a*percentage))/(1-math.exp(-a))
+            percentage = None
+
+            rb = self.pipeline(rays=rays, idx=idx, pos_x=pos_x, pos_y=pos_y, lod_idx=lod_idx, channels=["rgb", "depth"], percentage = percentage)
 
 
             l1=0.01
@@ -275,7 +283,11 @@ class Trainer(BaseTrainer):
             #depth_loss = torch.mean(torch.abs(rb.depth.squeeze(1) - (alpha_depth * depth + beta_depth)*mask - 10*(1-mask))*(1-l1*rb.alpha_t.squeeze(1)-(1-l1)*rb.alpha_t.squeeze(1).detach())*rb.hit)
 
             if mask is not None:
-                mask_loss = torch.mean(  (rb.alpha.squeeze(1)*rb.hit*(1 - mask))  +   (1-rb.alpha_t.squeeze(1)*(1 - mask))  + (1-rb.alpha.squeeze(1)*rb.hit)*(1-rb.alpha_t.squeeze(1))*(mask)  )
+                mask_loss = torch.mean( (rb.alpha.squeeze(1)*rb.hit*(1 - mask)) +
+                                        #(rb.alpha.squeeze(1)*rb.hit*(mask_hands)) + 
+                                        (1-rb.alpha_t.squeeze(1))*(1 - mask) +
+                                        (1-rb.alpha_t.squeeze(1))*(mask_hands) +
+                                        (1-rb.alpha.squeeze(1)*rb.hit)*(1-rb.alpha_t.squeeze(1))*(mask)*(1-mask_hands))
             
             trans_loss = (-torch.log((1-rb.alpha_t)+1e-7)).mean()
 

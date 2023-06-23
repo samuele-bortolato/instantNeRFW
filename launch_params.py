@@ -4,7 +4,7 @@ is_gui_mode=True
 
 import numpy as np
 
-dataset_path='datasets/greendino_new/'
+dataset_path='datasets/lego/'
 #model_path='_results/logs/runs/NerfW for hand-held objects/20230530-185943/model.pth'
 
 epochs=500
